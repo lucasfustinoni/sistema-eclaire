@@ -5,7 +5,7 @@ const $=id=>document.getElementById(id), angles=['Frente','Têmpora direita','T�
 const cap=['Quando começou a queda e como evoluiu?','Quais áreas foram afetadas? Há sintomas no couro cabeludo?','Medicamentos em uso','Alergias a medicamentos','Suplementos de academia','Uso atual ou anterior de hormônios','Tabagismo','Sono e produtos usados','Tratamentos anteriores para queda','Sintomas intestinais (opcional)'];
 const nut=['Café da manhã','Lanche da manhã','Almoço','Lanche da tarde','Jantar','Vontade de doces (opcional)','Bebidas alcoólicas (opcional)','Atividade física','Água por dia'];
 const state={type:'Capilar',visit:'Primeira consulta',forms:{},files:[],review:false,planned:4,done:0,agenda:'25/11/2026 às 14:00',status:'A confirmar',ticket:false,invite:'Aguardando verificação',copied:false,messages:[],recipe:false};
-const menus={Paciente:['Início','Cadastro','Pré-consulta','Minha Saúde','Dúvidas'],Recepção:['Agenda','Vinculação','Dúvidas'],Médico:['Fila','Revisão','Tratamento','Agenda','Configurações']};let page='Início';
+const menus={Paciente:['Início','Cadastro','Pré-consulta','Minha Saúde','Dúvidas'],Recepção:['Agenda','Vinculação','Dúvidas'],Médico:['Fila','Revisão','Tratamento','Agenda','Documentos','Configurações']};let page='Início';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const act=(id,label)=>'<button data-action="'+id+'">'+label+'</button>';
 const card=(title,body)=>'<section><h2>'+title+'</h2>'+body+'</section>';
@@ -26,6 +26,24 @@ function evolution(){
  return card('EVOLUÇÃO CLÍNICA','<p><small>Histórico fictício revisado. O arquivo selecionado não é analisado nesta demonstração.</small></p><h3>Principais Melhoras Obtidas</h3><ul>'+highlights.map(([n,c,u,a,b])=>'<li>✅ '+n+': '+a+' → '+b+' '+u+' ('+c.toLowerCase()+')</li>').join('')+'</ul><h3>Impacto Clínico das Melhoras</h3><div style="overflow:auto"><table><thead><tr><th scope="col">Exame</th><th scope="col">Histórico · 01/09/2026</th><th scope="col">Mais recente · 01/11/2026</th></tr></thead><tbody>'+demoLabs.map(([n,c,u,a,b])=>'<tr><th scope="row">'+n+'</th><td>'+a+' '+u+'</td><td>'+b+' '+u+'</td></tr>').join('')+'</tbody></table></div>'+highlights.map(row=>'<p>'+row[5]+'</p>').join('')+'<h3>Regras de ajuste da receita a partir dos exames</h3><p>O médico deve confirmar identidade, resultados, unidades e indicação antes de preparar a receita. Itens sem regra definida ficam pendentes.</p>');
 }
 
+
+function downloadDrafts(){
+ const clinical=(state.clinicalText||'').trim(), report=(state.reportText||'').trim(), prescription=(state.prescriptionText||'').trim();
+ const pdf=state.files.find(f=>f.key==='PDF de apoio');
+ if(!clinical||!report||!prescription||!pdf){$('notice').textContent='Preencha os campos e selecione um PDF fictício.';return;}
+ const clean=s=>s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'');
+ const renderText=s=>esc(clean(s)).replace(/\n/g,'<br>');
+ const html='<!doctype html><meta charset="utf-8"><h1>Rascunhos demonstrativos</h1><p>'+new Date().toLocaleDateString('pt-BR')+'</p><h2>Receita</h2><p>'+renderText(prescription)+'</p><h2>EVOLUÇÃO CLÍNICA</h2><p>PDF de referência: '+esc(pdf.name)+'</p><h3>Informações clínicas</h3><p>'+renderText(clinical)+'</p><h3>Relatório revisado</h3><p>'+renderText(report)+'</p>';
+ const url=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
+ const link=document.createElement('a');link.href=url;link.download='eclaire-rascunhos.html';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ $('notice').textContent='Rascunhos preparados em um único arquivo HTML.';
+}
+function documentDraft(){
+ const fields=[['clinicalText','Informações clínicas fictícias'],['reportText','Relatório revisado'],['prescriptionText','Receita definida pelo médico']];
+ const pdf=state.files.find(f=>f.key==='PDF de apoio');
+ return card('Documentos do atendimento','<p><small>Use apenas exemplos fictícios. O PDF é identificado pelo nome e o conteúdo dos rascunhos é preenchido manualmente.</small></p>'+upload('PDF de apoio','Anexar PDF fictício','application/pdf')+(pdf?'<p>PDF: '+esc(pdf.name)+'</p>':'')+fields.map(([k,label])=>'<label>'+label+'<textarea data-edit="'+k+'">'+esc(state[k])+'</textarea></label>').join('')+act('download-drafts','Baixar os dois rascunhos'));
+}
+
 function render(){const r=$('role').value;$('nav').innerHTML=menus[r].map(p=>'<button data-page="'+p+'" aria-current="'+(p===page)+'">'+p+'</button>').join('');let view='';
 if(page==='Início')view='<section class="hero"><h1>Olá, Mariana.</h1><p>Acompanhe suas consultas e seus documentos em um só lugar.</p></section>'+card('Próximo agendamento',esc(state.agenda)+' · '+esc(state.status)+ '<p>'+act('prepare','Preparar minha consulta')+'</p>');
 if(page==='Cadastro')view=card('Conferir cadastro',['Nome completo','CPF','Endereço','E-mail','Sexo','Data de nascimento'].map((x,i)=>edit('profile'+i,state['profile'+i]??['Mariana Almeida','000.000.000-00','Rua Fictícia, 100','mariana@example.invalid','Feminino','12/03/1989'][i],x)).join('')+act('save','Salvar conferência'));
@@ -41,6 +59,7 @@ if(page==='Revisão'){
  view+=card('Evolução dos exames',uploaded?act('evolution','Gerar evolução clínica'):'<p>Adicione um exame fictício para habilitar o botão.</p>');
  if(uploaded&&state.evolution)view+=evolution();
 }
+if(page==='Documentos')view=documentDraft();
 if(page==='Configurações')view=card('Modelos da clínica',
  '<p>Modelo de receita capilar em Word.</p><p><small>Demonstração local: o modelo fica disponível nesta aba até você fechar ou recarregar. Use um arquivo em branco, sem dados de pacientes.</small></p>'+
  '<label>'+ (state.template?'Substituir modelo':'Selecionar modelo')+'<input type="file" id="clinic-template" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>'+
@@ -56,7 +75,7 @@ document.addEventListener('change',async e=>{const t=e.target;if(t.id==='clinic-
  if(signature.join(',')!=='80,75,3,4'){$('notice').textContent='O arquivo não parece ser um documento Word válido.';return}
  state.template=file;render();$('notice').textContent='Modelo selecionado nesta aba.';return;
  }if(t.tagName==='SELECT'&&t.dataset.edit){state[t.dataset.edit]=t.value;render()}if(t.dataset.upload&&t.files[0]){const f=t.files[0];if(f.size>10*1024*1024||!(/^(application\/pdf|image\/)/.test(f.type))){$('notice').textContent='Selecione PDF ou imagem de até 10 MB.';return}state.files.push({name:f.name,key:t.dataset.upload,review:false});render();$('notice').textContent='Arquivo registrado para demonstração nesta sessão.'}});
-document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;if(t.dataset.page){page=t.dataset.page;render();return}const a=t.dataset.action;if(!a)return;let note='Alteração registrada nesta demonstração.';if(a==='template-download'&&state.template){
+document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;if(t.dataset.page){page=t.dataset.page;render();return}const a=t.dataset.action;if(!a)return;let note='Alteração registrada nesta demonstração.';if(a==='download-drafts'){downloadDrafts();return;}if(a==='template-download'&&state.template){
  const url=URL.createObjectURL(state.template);const link=document.createElement('a');link.href=url;link.download=state.template.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);return;
  }if(a==='template-remove'){delete state.template;note='Seleção retirada.';}if(a==='prepare')page='Pré-consulta';if(a==='review')page='Revisão';if(a==='invite')state.invite='Convite simulado';if(a==='flag')state.invite='Em revisão manual';if(a==='link')state.invite='Vínculo fictício conferido';if(a==='confirm')state.status='Confirmado';if(a==='reschedule')state.status='Remarcado';if(a==='evolution')state.evolution=true;if(a==='publish')state.review=true;if(a==='copy')state.copied=true;if(a==='recipe')state.recipe=true;if(a==='ticket')state.ticket=true;if(a==='application'&&state.done<state.planned)state.done++;if(a.startsWith('file:'))state.files[Number(a.slice(5))].review=true;if(a==='message'){const m=$('msg').value.trim();if(!m){$('notice').textContent='Escreva uma mensagem fictícia.';return}state.messages.push(m+($('attach').files[0]?' · '+$('attach').files[0].name:''));}render();$('notice').textContent=note;});render();
 </script></html>
