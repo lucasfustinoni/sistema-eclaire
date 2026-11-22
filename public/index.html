@@ -43,27 +43,53 @@ function wordZip(files){
  const count=central.length/2,size=central.reduce((sum,a)=>sum+a.length,0);
  return new Blob([...local,...central,header(22,[[0,0x06054b50],[8,count,2],[10,count,2],[12,size],[16,offset]])]);
 }
-function makeWord(lines){
- const body=lines.flatMap(line=>line.split(/\r?\n/)).map(line=>'<w:p><w:r><w:t xml:space="preserve">'+esc(line.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]/g,''))+'</w:t></w:r></w:p>').join('');
+const clinicModels={
+ recipe:{name:'Receita Éclairé',file:'Receita.docx',template:'Modelo-Receita-Eclaire.docx',description:'Identificação, fórmulas por via de uso, componentes, quantidade, posologia e data.'},
+ report:{name:'Relatório de evolução clínica',file:'Relatório.docx',template:'Modelo-Relatorio-Eclaire.docx',description:'Identificação, período de acompanhamento, principais melhoras e impacto clínico.'}
+};
+const clinicHeadings=/^(?:EVOLUÇÃO CLÍNICA|Principais Melhoras Obtidas|Impacto Clínico das Melhoras|MANIPULE|Uso (?:oral|tópico|contínuo).*|Fórmula \d+)[:.]?$/iu;
+function makeWord(kind, content, date, isModel=false){
+ const paragraph=(value,{size=22,color='20352E',bold=false,center=false,after=110}={})=>{
+  const clean=value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]/g,'');
+  return '<w:p><w:pPr><w:spacing w:after="'+after+'"/>'+(center?'<w:jc w:val="center"/>':'')+
+   '</w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/>'+ (bold?'<w:b/>':'')+
+   '<w:color w:val="'+color+'"/><w:sz w:val="'+size+'"/></w:rPr><w:t xml:space="preserve">'+esc(clean)+'</w:t></w:r></w:p>';
+ };
+ const heading={bold:true,color:'245345',after:90};
+ const title=kind==='recipe'?'RECEITA':'EVOLUÇÃO CLÍNICA';
+ let body=paragraph(title,{...heading,size:34,center:true,after:170});
+ if(isModel)body+=paragraph(kind==='recipe'?'PARA [Nome do paciente]':'[Nome do paciente] · [Idade] · [Período] · [Data dos exames]');
+ const lines=content.split(/\r?\n/).map(line=>line.trim().replace(/^\s{0,3}#{1,6}\s+/,'').replace(/\*\*([^*]+)\*\*/g,'$1'));
+ if(isModel&&kind==='recipe'&&!lines.some(line=>/^MANIPULE:?$/iu.test(line)))body+=paragraph('MANIPULE',heading);
+ for(const line of lines){
+  if(!line||line.toLocaleUpperCase('pt-BR')===title)continue;
+  body+=paragraph(line.replace(/^[-*]\s+/,'• '),clinicHeadings.test(line)?heading:{});
+ }
+ body+=paragraph(date,{after:150});
+ if(kind==='recipe')body+=paragraph('Éclairé',{...heading,center:true});
+ const page='<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1000" w:right="1100" w:bottom="1000" w:left="1100"/></w:sectPr>';
  return wordZip({
  '[Content_Types].xml':'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
  '_rels/.rels':'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
- 'word/document.xml':'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+body+'</w:body></w:document>'
+ 'word/document.xml':'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+body+page+'</w:body></w:document>'
  });
+}
+function downloadWord(blob,name){
+ const url=URL.createObjectURL(blob);
+ const link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ $('notice').textContent='Download iniciado: '+name;
 }
 function downloadDraft(kind){
  const isRecipe=kind==='recipe';
- const prescription=(state.prescriptionText||'').trim();
- const clinical=(state.clinicalText||'').trim(),report=(state.reportText||'').trim();
- const pdf=state.files.findLast(f=>f.key==='PDF de apoio');
- if(isRecipe?!prescription:!clinical||!report||!pdf){
-  $('notice').textContent=isRecipe?'Preencha a receita antes de baixar.':'Preencha as informações clínicas e o relatório e selecione um PDF fictício.';return;
+ const content=(isRecipe?state.prescriptionText:state.reportText)?.trim();
+ if(!content){
+  $('notice').textContent=isRecipe?'Preencha a receita antes de baixar.':'Preencha o relatório antes de baixar.';return;
  }
- const date=new Date().toLocaleDateString('pt-BR');
- const lines=isRecipe?['Rascunho demonstrativo de receita',date,prescription]:['Rascunho demonstrativo','EVOLUÇÃO CLÍNICA',date,'PDF de referência: '+pdf.name,'Informações clínicas',clinical,'Relatório revisado',report];
- const url=URL.createObjectURL(makeWord(lines));
- const link=document.createElement('a');link.href=url;link.download=isRecipe?'Receita.docx':'Relatório.docx';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
- $('notice').textContent='Download iniciado: '+link.download;
+ downloadWord(makeWord(kind,content,new Date().toLocaleDateString('pt-BR')),clinicModels[kind].file);
+}
+function downloadClinicModel(kind){
+ const content=kind==='recipe'?'Uso oral\nFórmula 1\n• [Componente e dose]\n[Quantidade a manipular]\n[Posologia e duração]':'Principais Melhoras Obtidas\n• [Exame: valor anterior → valor recente, unidade e datas]\nImpacto Clínico das Melhoras\n[Interpretação e pontos para acompanhamento]';
+ downloadWord(makeWord(kind,content,'[Data]',true),clinicModels[kind].template);
 }
 function documentDraft(){
  const fields=[['clinicalText','Informações clínicas fictícias'],['reportText','Relatório revisado'],['prescriptionText','Receita definida pelo médico']];
@@ -86,7 +112,7 @@ if(page==='Revisão'){
  if(uploaded&&state.evolution)view+=evolution();
 }
 if(page==='Documentos')view=documentDraft();
-if(page==='Configurações')view=card('Modelos da clínica',
+if(page==='Configurações')view=card('Modelos da clínica',Object.entries(clinicModels).map(([kind,model])=>'<h3>'+esc(model.name)+'</h3><p>'+esc(model.description)+'</p>'+act('model:'+kind,'Baixar modelo Word')).join(''))+card('Modelo próprio desta aba',
  '<p>Modelo de receita capilar em Word.</p><p><small>Demonstração local: o modelo fica disponível nesta aba até você fechar ou recarregar. Use um arquivo em branco, sem dados de pacientes.</small></p>'+
  '<label>'+ (state.template?'Substituir modelo':'Selecionar modelo')+'<input type="file" id="clinic-template" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>'+
  (state.template?'<p><strong>Modelo selecionado</strong><br>'+esc(state.template.name)+'</p><div class="row">'+act('template-download','Baixar original')+act('template-remove','Retirar seleção')+'</div>':'<p>Nenhum modelo selecionado.</p>'));
@@ -101,7 +127,7 @@ document.addEventListener('change',async e=>{const t=e.target;if(t.id==='clinic-
  if(signature.join(',')!=='80,75,3,4'){$('notice').textContent='O arquivo não parece ser um documento Word válido.';return}
  state.template=file;render();$('notice').textContent='Modelo selecionado nesta aba.';return;
  }if(t.tagName==='SELECT'&&t.dataset.edit){state[t.dataset.edit]=t.value;render()}if(t.dataset.upload&&t.files[0]){const f=t.files[0];if(f.size>10*1024*1024||!(/^(application\/pdf|image\/)/.test(f.type))){$('notice').textContent='Selecione PDF ou imagem de até 10 MB.';return}state.files.push({name:f.name,key:t.dataset.upload,review:false});render();$('notice').textContent='Arquivo registrado para demonstração nesta sessão.'}});
-document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;if(t.dataset.page){page=t.dataset.page;render();return}const a=t.dataset.action;if(!a)return;let note='Alteração registrada nesta demonstração.';if(a==='download-recipe'||a==='download-report'){downloadDraft(a==='download-recipe'?'recipe':'report');return;}if(a==='template-download'&&state.template){
+document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;if(t.dataset.page){page=t.dataset.page;render();return}const a=t.dataset.action;if(!a)return;if(a==='model:recipe'||a==='model:report'){downloadClinicModel(a.slice(6));return;}let note='Alteração registrada nesta demonstração.';if(a==='download-recipe'||a==='download-report'){downloadDraft(a==='download-recipe'?'recipe':'report');return;}if(a==='template-download'&&state.template){
  const url=URL.createObjectURL(state.template);const link=document.createElement('a');link.href=url;link.download=state.template.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);return;
  }if(a==='template-remove'){delete state.template;note='Seleção retirada.';}if(a==='prepare')page='Pré-consulta';if(a==='review')page='Revisão';if(a==='confirm')state.status='Confirmado';if(a==='reschedule')state.status='Remarcado';if(a==='evolution')state.evolution=true;if(a==='publish')state.review=true;if(a==='copy')state.copied=true;if(a==='recipe')state.recipe=true;if(a==='ticket')state.ticket=true;if(a==='application'&&state.done<state.planned)state.done++;if(a.startsWith('file:'))state.files[Number(a.slice(5))].review=true;if(a==='message'){const m=$('msg').value.trim();if(!m){$('notice').textContent='Escreva uma mensagem fictícia.';return}state.messages.push(m+($('attach').files[0]?' · '+$('attach').files[0].name:''));}render();$('notice').textContent=note;});render();
 </script></html>
