@@ -3,6 +3,7 @@ import {randomBytes,createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 
 const {GOOGLE_CLIENT_ID:id,GOOGLE_CLIENT_SECRET:secret,OPENAI_API_KEY:key,OPENAI_MODEL:model,ECLAIRE_ORIGIN:origin,PORT=3000}=process.env;
+const clinicalMode=process.env.ECLAIRE_DOCUMENT_MODE==='clinical';
 const admin='clinicaeclaire@gmail.com';
 const states=new Map(), sessions=new Map();
 const nonce=()=>randomBytes(32).toString('base64url');
@@ -20,19 +21,23 @@ async function input(req){
  for await(const p of req){size+=p.length;if(size>7_100_000)return null;parts.push(p);}
  try{return JSON.parse(Buffer.concat(parts));}catch{return null;}
 }
-const ui=String.raw`
+const ui='const clinicalDocumentMode='+JSON.stringify(clinicalMode)+';\n'+String.raw`
 let selectedPdf,loading=false;
 const baseRender=render;
 render=function(){
  baseRender();
  if(page!=='Documentos')return;
  const section=$('panel').querySelector('section');
- section.querySelector('small').textContent='Ambiente de validação. Use somente PDF e notas fictícios.';
+ section.querySelector('small').textContent=clinicalDocumentMode
+  ? 'O PDF integral e as notas clínicas serão enviados à API da OpenAI para gerar rascunhos. Revise os documentos antes de usá-los.'
+  : 'Ambiente de validação. Use somente PDF e notas fictícios.';
  const button=document.createElement('button');button.textContent='Gerar rascunhos com OpenAI';button.disabled=loading;
  section.insertBefore(button,section.lastElementChild);
  button.onclick=async()=>{
-  if(!selectedPdf||!state.clinicalText?.trim()){$('notice').textContent='Selecione o PDF fictício e cole as notas.';return;}
-  if(!confirm('Enviar este PDF e as notas fictícias à API da OpenAI para gerar os rascunhos?'))return;
+  if(!selectedPdf||!state.clinicalText?.trim()){$('notice').textContent='Selecione o PDF e cole as notas.';return;}
+  if(!confirm(clinicalDocumentMode
+   ? 'Enviar o PDF integral e as notas clínicas à API da OpenAI para gerar os rascunhos?'
+   : 'Enviar este PDF e as notas fictícias à API da OpenAI para gerar os rascunhos?'))return;
   const file=selectedPdf,notes=state.clinicalText;
   loading=true;button.disabled=true;$('notice').textContent='Preparando os rascunhos…';
   try{
@@ -101,6 +106,7 @@ http.createServer(async(req,res)=>{
   input:[{role:'user',content:[{type:'input_text',text:data.notes},{type:'input_file',filename:'exame.pdf',file_data:'data:application/pdf;base64,'+data.pdf}]}],
   text:{format:{type:'json_schema',name:'rascunhos',strict:true,schema:{type:'object',properties:{report:{type:'string'},prescription:{type:'string'}},required:['report','prescription'],additionalProperties:false}}}
  })},90000);
+ if(result.status!=='completed')throw Error('incomplete draft');
  const out=JSON.parse(result.output?.flatMap(i=>i.content||[]).find(i=>i.type==='output_text')?.text);
  if(typeof out.report!=='string'||!out.report.trim()||typeof out.prescription!=='string')throw Error('draft');
  return reply(res,200,out);
