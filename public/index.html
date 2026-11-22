@@ -166,7 +166,27 @@ async function fillOriginalRecipe(file,patient,content,date){
  files[xmlPath]=new XMLSerializer().serializeToString(xml);
  return wordZip(files);
 }
+function templateStorage(operation,file){
+ return new Promise((resolve,reject)=>{
+  const request=indexedDB.open('eclaire-clinic-template',1);
+  request.onupgradeneeded=()=>request.result.createObjectStore('models');
+  request.onerror=()=>reject(request.error);
+  request.onblocked=()=>reject(new Error('Armazenamento bloqueado.'));
+  request.onsuccess=()=>{
+   const db=request.result;
+   const tx=db.transaction('models',operation==='read'?'readonly':'readwrite');
+   const models=tx.objectStore('models');
+   const result=operation==='read'?models.get('capilar'):operation==='remove'?models.delete('capilar'):models.put(file,'capilar');
+   tx.oncomplete=()=>{db.close();resolve(result.result);};
+   tx.onabort=()=>{db.close();reject(tx.error||new Error('Falha ao gravar modelo.'));};
+  };
+ });
+}
+const templateReady=templateStorage('read').then(file=>{
+ if(file instanceof File){state.template=file;if(page==='Configurações')render();}
+}).catch(()=>{});
 async function downloadDraft(kind){
+ if(kind==='recipe')await templateReady;
  const isRecipe=kind==='recipe';
  const content=(isRecipe?state.prescriptionText:state.reportText)?.trim();
  if(!content){
@@ -210,7 +230,7 @@ if(page==='Revisão'){
  if(uploaded&&state.evolution)view+=evolution();
 }
 if(page==='Documentos')view=documentDraft();
-if(page==='Configurações')view=card('Modelos da clínica',Object.entries(clinicModels).map(([kind,model])=>'<h3>'+esc(model.name)+'</h3><p>'+esc(model.description)+'</p>'+act('model:'+kind,'Baixar modelo Word')).join(''))+card('Modelo próprio desta aba',
+if(page==='Configurações')view=card('Modelos da clínica',Object.entries(clinicModels).map(([kind,model])=>'<h3>'+esc(model.name)+'</h3><p>'+esc(model.description)+'</p>'+act('model:'+kind,'Baixar modelo Word')).join(''))+card('Modelo original salvo neste navegador',
  '<p>Modelo de receita capilar em Word.</p><p><small>Demonstração local: o modelo fica disponível nesta aba até você fechar ou recarregar. Use um arquivo em branco, sem dados de pacientes.</small></p>'+
  '<label>'+ (state.template?'Substituir modelo':'Selecionar modelo')+'<input type="file" id="clinic-template" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>'+
  (state.template?'<p><strong>Modelo selecionado</strong><br>'+esc(state.template.name)+'</p><div class="row">'+act('template-download','Baixar original')+act('template-remove','Retirar seleção')+'</div>':'<p>Nenhum modelo selecionado.</p>'));
@@ -223,9 +243,11 @@ document.addEventListener('change',async e=>{const t=e.target;if(t.id==='clinic-
  if(!/\.docx$/i.test(file.name)||file.size<4||file.size>15*1024*1024){$('notice').textContent='Selecione um arquivo .docx de até 15 MB.';return}
  const signature=new Uint8Array(await file.slice(0,4).arrayBuffer());
  if(signature.join(',')!=='80,75,3,4'){$('notice').textContent='O arquivo não parece ser um documento Word válido.';return}
- state.template=file;render();$('notice').textContent='Modelo original selecionado para as exportações de receita desta aba.';return;
+ await templateReady;
+ try{await templateStorage('save',file);state.template=file;render();$('notice').textContent='Modelo original salvo para as próximas receitas neste navegador.';}
+ catch{$('notice').textContent='Não foi possível salvar o modelo neste navegador.';}return;
  }if(t.tagName==='SELECT'&&t.dataset.edit){state[t.dataset.edit]=t.value;render()}if(t.dataset.upload&&t.files[0]){const f=t.files[0];if(f.size>10*1024*1024||!(/^(application\/pdf|image\/)/.test(f.type))){$('notice').textContent='Selecione PDF ou imagem de até 10 MB.';return}state.files.push({name:f.name,key:t.dataset.upload,review:false});render();$('notice').textContent='Arquivo registrado para demonstração nesta sessão.'}});
-document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;if(t.dataset.page){page=t.dataset.page;render();return}const a=t.dataset.action;if(!a)return;if(a==='model:recipe'||a==='model:report'){downloadClinicModel(a.slice(6));return;}let note='Alteração registrada nesta demonstração.';if(a==='download-recipe'||a==='download-report'){downloadDraft(a==='download-recipe'?'recipe':'report');return;}if(a==='template-download'&&state.template){
+document.addEventListener('click',async e=>{const t=e.target.closest('button');if(!t)return;if(t.dataset.page){page=t.dataset.page;render();return}const a=t.dataset.action;if(!a)return;if(a==='model:recipe'||a==='model:report'){downloadClinicModel(a.slice(6));return;}let note='Alteração registrada nesta demonstração.';if(a==='download-recipe'||a==='download-report'){downloadDraft(a==='download-recipe'?'recipe':'report');return;}if(a==='template-download'&&state.template){
  const url=URL.createObjectURL(state.template);const link=document.createElement('a');link.href=url;link.download=state.template.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);return;
- }if(a==='template-remove'){delete state.template;note='Seleção retirada.';}if(a==='prepare')page='Pré-consulta';if(a==='review')page='Revisão';if(a==='confirm')state.status='Confirmado';if(a==='reschedule')state.status='Remarcado';if(a==='evolution')state.evolution=true;if(a==='publish')state.review=true;if(a==='copy')state.copied=true;if(a==='recipe')state.recipe=true;if(a==='ticket')state.ticket=true;if(a==='application'&&state.done<state.planned)state.done++;if(a.startsWith('file:'))state.files[Number(a.slice(5))].review=true;if(a==='message'){const m=$('msg').value.trim();if(!m){$('notice').textContent='Escreva uma mensagem fictícia.';return}state.messages.push(m+($('attach').files[0]?' · '+$('attach').files[0].name:''));}render();$('notice').textContent=note;});render();
+ }if(a==='template-remove'){await templateReady;try{await templateStorage('remove');delete state.template;note='Modelo retirado deste navegador.';}catch{note='Não foi possível retirar o modelo.';}}if(a==='prepare')page='Pré-consulta';if(a==='review')page='Revisão';if(a==='confirm')state.status='Confirmado';if(a==='reschedule')state.status='Remarcado';if(a==='evolution')state.evolution=true;if(a==='publish')state.review=true;if(a==='copy')state.copied=true;if(a==='recipe')state.recipe=true;if(a==='ticket')state.ticket=true;if(a==='application'&&state.done<state.planned)state.done++;if(a.startsWith('file:'))state.files[Number(a.slice(5))].review=true;if(a==='message'){const m=$('msg').value.trim();if(!m){$('notice').textContent='Escreva uma mensagem fictícia.';return}state.messages.push(m+($('attach').files[0]?' · '+$('attach').files[0].name:''));}render();$('notice').textContent=note;});render();
 </script></html>
