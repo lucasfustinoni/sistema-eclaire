@@ -91,6 +91,17 @@ http.createServer(async(req,res)=>{
   return res.end(allowed?root.replace('</html>','<script src="/documents.js"></script></html>'):'<!doctype html><meta charset="utf-8"><title>Éclairé</title><h1>Éclairé · Área da equipe</h1><a href="/auth/google">Entrar com Google</a>');
  }
  if(!allowed)return reply(res,401,{error:'Entre com a conta autorizada.'});
+ if(req.method==='GET'&&path==='/api/prescription-template'){
+  const encoded=await readFile('/etc/secrets/eclaire-prescription-template.b64','utf8').catch(error=>{
+   if(error.code==='ENOENT')return null;
+   throw error;
+  });
+  if(!encoded)return reply(res,404,{error:'Modelo compartilhado ainda não cadastrado.'});
+  const docx=Buffer.from(encoded.trim(),'base64');
+  if(docx.length>15*1024*1024||docx.length<4||docx.readUInt32LE(0)!==0x04034b50)return reply(res,503,{error:'O modelo compartilhado precisa ser corrigido.'});
+  res.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','Content-Length':docx.length});
+  return res.end(docx);
+ }
  if(req.method==='GET'&&path==='/documents.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');return res.end(ui);}
  if(req.method!=='POST'||path!=='/api/documents')return reply(res,404,{error:'Rota não encontrada.'});
  if(req.headers.origin!==origin||req.headers['content-type']!=='application/json')return reply(res,403,{error:'Origem inválida.'});
