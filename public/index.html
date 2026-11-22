@@ -182,9 +182,19 @@ function templateStorage(operation,file){
   };
  });
 }
-const templateReady=templateStorage('read').then(file=>{
- if(file instanceof File){state.template=file;if(page==='Configurações')render();}
-}).catch(()=>{});
+const templateReady=(async()=>{
+ try{
+  const response=await fetch('/api/prescription-template');
+  if(response.ok){
+   state.template=new File([await response.blob()],'PRESCRIPTION_TEMPLATE_CABELO.docx');
+   state.sharedTemplate=true;
+  }
+ }catch{}
+ if(!state.template){
+  try{const file=await templateStorage('read');if(file instanceof File)state.template=file;}catch{}
+ }
+ if(page==='Configurações')render();
+})();
 async function downloadDraft(kind){
  if(kind==='recipe')await templateReady;
  const isRecipe=kind==='recipe';
@@ -230,10 +240,10 @@ if(page==='Revisão'){
  if(uploaded&&state.evolution)view+=evolution();
 }
 if(page==='Documentos')view=documentDraft();
-if(page==='Configurações')view=card('Modelos da clínica',Object.entries(clinicModels).map(([kind,model])=>'<h3>'+esc(model.name)+'</h3><p>'+esc(model.description)+'</p>'+act('model:'+kind,'Baixar modelo Word')).join(''))+card('Modelo original salvo neste navegador',
+if(page==='Configurações')view=card('Modelos da clínica',Object.entries(clinicModels).map(([kind,model])=>'<h3>'+esc(model.name)+'</h3><p>'+esc(model.description)+'</p>'+act('model:'+kind,'Baixar modelo Word')).join(''))+card(state.sharedTemplate?'Modelo original compartilhado pela clínica':'Modelo original salvo neste navegador',
  '<p>Modelo de receita capilar em Word.</p><p><small>Demonstração local: o modelo fica disponível nesta aba até você fechar ou recarregar. Use um arquivo em branco, sem dados de pacientes.</small></p>'+
- '<label>'+ (state.template?'Substituir modelo':'Selecionar modelo')+'<input type="file" id="clinic-template" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>'+
- (state.template?'<p><strong>Modelo selecionado</strong><br>'+esc(state.template.name)+'</p><div class="row">'+act('template-download','Baixar original')+act('template-remove','Retirar seleção')+'</div>':'<p>Nenhum modelo selecionado.</p>'));
+ (state.sharedTemplate?'':'<label>'+ (state.template?'Substituir modelo':'Selecionar modelo')+'<input type="file" id="clinic-template" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>')+
+ (state.template?'<p><strong>Modelo selecionado</strong><br>'+esc(state.template.name)+'</p><div class="row">'+act('template-download','Baixar original')+(state.sharedTemplate?'':act('template-remove','Retirar seleção'))+'</div>':'<p>Nenhum modelo selecionado.</p>'));
 if(page==='Tratamento')view=card('Plano individual',edit('treatment',state.treatment??'Aplicação demonstrativa','Tipo de tratamento')+'<label>Aplicações recomendadas<input type="number" min="'+state.done+'" value="'+state.planned+'" data-edit="planned"></label><p>'+state.done+' realizadas · '+Math.max(0,state.planned-state.done)+' restantes</p>'+act('application','Registrar aplicação'));
 $('panel').innerHTML=view;}
 $('role').onchange=()=>{page=menus[$('role').value][0];render()};
