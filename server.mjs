@@ -30,14 +30,11 @@ render=function(){
  const section=$('panel').querySelector('section');
  section.querySelector('small').textContent=clinicalDocumentMode
   ? 'O PDF integral e as notas clínicas serão enviados à API da OpenAI para gerar rascunhos. Revise os documentos antes de usá-los.'
-  : 'Ambiente de validação. Use somente PDF e notas fictícios.';
+  : 'Ambiente de validação. Ao gerar, o PDF e as notas fictícias são enviados à API da OpenAI.';
  const button=document.createElement('button');button.textContent='Gerar rascunhos com OpenAI';button.disabled=loading;
  section.insertBefore(button,section.lastElementChild);
  button.onclick=async()=>{
   if(!selectedPdf||!state.clinicalText?.trim()){$('notice').textContent='Selecione o PDF e cole as notas.';return;}
-  if(!confirm(clinicalDocumentMode
-   ? 'Enviar o PDF integral e as notas clínicas à API da OpenAI para gerar os rascunhos?'
-   : 'Enviar este PDF e as notas fictícias à API da OpenAI para gerar os rascunhos?'))return;
   const file=selectedPdf,notes=state.clinicalText;
   loading=true;button.disabled=true;$('notice').textContent='Preparando os rascunhos…';
   try{
@@ -58,6 +55,8 @@ document.addEventListener('change',e=>{
  state.reportText='';state.prescriptionText='';
  if(!selectedPdf){e.stopImmediatePropagation();render();$('notice').textContent='Selecione um PDF de até 5 MB.';}
 },true);
+$('role').value='Médico';
+page='Documentos';
 render();
 `;
 http.createServer(async(req,res)=>{
