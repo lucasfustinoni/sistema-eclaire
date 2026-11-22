@@ -51,22 +51,24 @@ function makeWord(lines){
  'word/document.xml':'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+body+'</w:body></w:document>'
  });
 }
-async function downloadDrafts(){
- const clinical=(state.clinicalText||'').trim(),report=(state.reportText||'').trim(),prescription=(state.prescriptionText||'').trim();
+function downloadDraft(kind){
+ const isRecipe=kind==='recipe';
+ const prescription=(state.prescriptionText||'').trim();
+ const clinical=(state.clinicalText||'').trim(),report=(state.reportText||'').trim();
  const pdf=state.files.findLast(f=>f.key==='PDF de apoio');
- if(!clinical||!report||!prescription||!pdf){$('notice').textContent='Preencha os campos e selecione um PDF fictício.';return;}
+ if(isRecipe?!prescription:!clinical||!report||!pdf){
+  $('notice').textContent=isRecipe?'Preencha a receita antes de baixar.':'Preencha as informações clínicas e o relatório e selecione um PDF fictício.';return;
+ }
  const date=new Date().toLocaleDateString('pt-BR');
- try{
- const files=await Promise.all([makeWord(['Rascunho demonstrativo de receita',date,prescription]).arrayBuffer(),makeWord(['Rascunho demonstrativo','EVOLUÇÃO CLÍNICA',date,'PDF de referência: '+pdf.name,'Informações clínicas',clinical,'Relatório revisado',report]).arrayBuffer()]);
- const url=URL.createObjectURL(wordZip({'Receita.docx':new Uint8Array(files[0]),'Relatório.docx':new Uint8Array(files[1])}));
- const link=document.createElement('a');link.href=url;link.download='Eclaire-documentos.zip';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
- $('notice').textContent='Download iniciado com a receita e o relatório em Word.';
- }catch{$('notice').textContent='Não foi possível gerar o arquivo. Tente novamente.';}
+ const lines=isRecipe?['Rascunho demonstrativo de receita',date,prescription]:['Rascunho demonstrativo','EVOLUÇÃO CLÍNICA',date,'PDF de referência: '+pdf.name,'Informações clínicas',clinical,'Relatório revisado',report];
+ const url=URL.createObjectURL(makeWord(lines));
+ const link=document.createElement('a');link.href=url;link.download=isRecipe?'Receita.docx':'Relatório.docx';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ $('notice').textContent='Download iniciado: '+link.download;
 }
 function documentDraft(){
  const fields=[['clinicalText','Informações clínicas fictícias'],['reportText','Relatório revisado'],['prescriptionText','Receita definida pelo médico']];
  const pdf=state.files.find(f=>f.key==='PDF de apoio');
- return card('Documentos do atendimento','<p><small>Use apenas exemplos fictícios. O PDF é identificado pelo nome e o conteúdo dos rascunhos é preenchido manualmente.</small></p>'+upload('PDF de apoio','Anexar PDF fictício','application/pdf')+(pdf?'<p>PDF: '+esc(pdf.name)+'</p>':'')+fields.map(([k,label])=>'<label>'+label+'<textarea data-edit="'+k+'">'+esc(state[k])+'</textarea></label>').join('')+act('download-drafts','Baixar receita e relatório em Word'));
+ return card('Documentos do atendimento','<p><small>Use apenas exemplos fictícios. O PDF é identificado pelo nome e o conteúdo dos rascunhos é preenchido manualmente.</small></p>'+upload('PDF de apoio','Anexar PDF fictício','application/pdf')+(pdf?'<p>PDF: '+esc(pdf.name)+'</p>':'')+fields.map(([k,label])=>'<label>'+label+'<textarea data-edit="'+k+'">'+esc(state[k])+'</textarea></label>').join('')+'<div class="row">'+act('download-recipe','Baixar receita (.docx)')+act('download-report','Baixar relatório (.docx)')+'</div>');
 }
 
 function render(){const r=$('role').value;$('nav').innerHTML=menus[r].map(p=>'<button data-page="'+p+'" aria-current="'+(p===page)+'">'+p+'</button>').join('');let view='';
@@ -100,7 +102,7 @@ document.addEventListener('change',async e=>{const t=e.target;if(t.id==='clinic-
  if(signature.join(',')!=='80,75,3,4'){$('notice').textContent='O arquivo não parece ser um documento Word válido.';return}
  state.template=file;render();$('notice').textContent='Modelo selecionado nesta aba.';return;
  }if(t.tagName==='SELECT'&&t.dataset.edit){state[t.dataset.edit]=t.value;render()}if(t.dataset.upload&&t.files[0]){const f=t.files[0];if(f.size>10*1024*1024||!(/^(application\/pdf|image\/)/.test(f.type))){$('notice').textContent='Selecione PDF ou imagem de até 10 MB.';return}state.files.push({name:f.name,key:t.dataset.upload,review:false});render();$('notice').textContent='Arquivo registrado para demonstração nesta sessão.'}});
-document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;if(t.dataset.page){page=t.dataset.page;render();return}const a=t.dataset.action;if(!a)return;let note='Alteração registrada nesta demonstração.';if(a==='download-drafts'){downloadDrafts();return;}if(a==='template-download'&&state.template){
+document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;if(t.dataset.page){page=t.dataset.page;render();return}const a=t.dataset.action;if(!a)return;let note='Alteração registrada nesta demonstração.';if(a==='download-recipe'||a==='download-report'){downloadDraft(a==='download-recipe'?'recipe':'report');return;}if(a==='template-download'&&state.template){
  const url=URL.createObjectURL(state.template);const link=document.createElement('a');link.href=url;link.download=state.template.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);return;
  }if(a==='template-remove'){delete state.template;note='Seleção retirada.';}if(a==='prepare')page='Pré-consulta';if(a==='review')page='Revisão';if(a==='invite')state.invite='Convite simulado';if(a==='flag')state.invite='Em revisão manual';if(a==='link')state.invite='Vínculo fictício conferido';if(a==='confirm')state.status='Confirmado';if(a==='reschedule')state.status='Remarcado';if(a==='evolution')state.evolution=true;if(a==='publish')state.review=true;if(a==='copy')state.copied=true;if(a==='recipe')state.recipe=true;if(a==='ticket')state.ticket=true;if(a==='application'&&state.done<state.planned)state.done++;if(a.startsWith('file:'))state.files[Number(a.slice(5))].review=true;if(a==='message'){const m=$('msg').value.trim();if(!m){$('notice').textContent='Escreva uma mensagem fictícia.';return}state.messages.push(m+($('attach').files[0]?' · '+$('attach').files[0].name:''));}render();$('notice').textContent=note;});render();
 </script></html>
