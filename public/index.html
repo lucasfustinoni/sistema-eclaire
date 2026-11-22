@@ -63,7 +63,7 @@ function makeWord(kind, content, date, isModel=false){
  if(isModel&&kind==='recipe'&&!lines.some(line=>/^MANIPULE:?$/iu.test(line)))body+=paragraph('MANIPULE',heading);
  for(const line of lines){
   if(!line||line.toLocaleUpperCase('pt-BR')===title)continue;
-  body+=paragraph(line.replace(/^[-*]\s+/,'• '),clinicHeadings.test(line)?heading:{});
+  body+=paragraph(line.replace(/^[-*]\s+/,'• '),clinicHeadings.test(line)?{...heading,center:kind==='recipe'&&/^Uso\b/iu.test(line)}:{});
  }
  body+=paragraph(date,{after:150});
  if(kind==='recipe'){
@@ -89,7 +89,12 @@ function downloadDraft(kind){
  if(!content){
   $('notice').textContent=isRecipe?'Preencha a receita com a conduta definida ou use o botão para baixar o modelo capilar em branco.':'Preencha o relatório antes de baixar.';return;
  }
- downloadWord(makeWord(kind,content,new Date().toLocaleDateString('pt-BR')),clinicModels[kind].file);
+ const patient=isRecipe?content.replace(/\\r\\n|\\n/g,'\n').split(/\r?\n/).map(line=>line.replace(/\*\*/g,'').replace(/^\s*#{1,6}\s+/,'').match(/^\s*PARA(?:\s*:\s*|\s+)(.+?)\s*$/iu)?.[1]).find(Boolean):null;
+ const safeName=patient?.replace(/[<>:"/\\|?*\x00-\x1f]/g,' ').replace(/\s+/g,' ').trim().slice(0,140);
+ if(isRecipe&&!safeName){
+  $('notice').textContent='Inclua uma linha “PARA Nome do paciente” na receita para gerar o arquivo identificado.';return;
+ }
+ downloadWord(makeWord(kind,content,new Date().toLocaleDateString('pt-BR')),isRecipe?safeName+' - receita.docx':clinicModels[kind].file);
 }
 function downloadClinicModel(kind){
  const content=kind==='recipe'?'Uso [via] · [Duração]\n[Orientações gerais]\nFórmula 1\n• [Componente e dose]\nQSP [Quantidade e apresentação]\n[Posologia, frequência e instruções]\nFórmula 2\n• [Componente e dose]\nQSP [Quantidade e apresentação]\n[Posologia, frequência e instruções]':'Principais Melhoras Obtidas\n• [Exame: valor anterior → valor recente, unidade e datas]\nImpacto Clínico das Melhoras\n[Interpretação e pontos para acompanhamento]';
