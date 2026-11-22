@@ -83,7 +83,90 @@ function downloadWord(blob,name){
  const link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
  $('notice').textContent='Download iniciado: '+name;
 }
-function downloadDraft(kind){
+async function fillOriginalRecipe(file,patient,content,date){
+ const bytes=new Uint8Array(await file.arrayBuffer()), view=new DataView(bytes.buffer);
+ const xmlPath='word/document.xml', decoder=new TextDecoder();
+ let end=bytes.length-22;
+ while(end>=Math.max(0,bytes.length-65557)&&view.getUint32(end,true)!==0x06054b50)end--;
+ if(end<Math.max(0,bytes.length-65557))throw Error('O modelo não é um Word válido.');
+ let offset=view.getUint32(end+16,true), total=0;
+ const files=Object.create(null);
+ for(let i=0;i<view.getUint16(end+10,true);i++){
+  if(view.getUint32(offset,true)!==0x02014b50)throw Error('O modelo Word está danificado.');
+  const method=view.getUint16(offset+10,true),length=view.getUint16(offset+28,true);
+  const name=decoder.decode(bytes.subarray(offset+46,offset+46+length));
+  const size=view.getUint32(offset+20,true), expanded=view.getUint32(offset+24,true), local=view.getUint32(offset+42,true);
+  total+=expanded;
+  if(total>40*1024*1024||![0,8].includes(method)||view.getUint16(offset+8,true)&1)throw Error('Formato de modelo Word não suportado.');
+  if(view.getUint32(local,true)!==0x04034b50)throw Error('O modelo Word está danificado.');
+  const start=local+30+view.getUint16(local+26,true)+view.getUint16(local+28,true);
+  const packed=bytes.subarray(start,start+size);
+  const data=method===0?packed:new Uint8Array(await new Response(new Blob([packed]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+  if(data.length!==expanded)throw Error('O modelo Word está danificado.');
+  files[name]=data;
+  offset+=46+length+view.getUint16(offset+30,true)+view.getUint16(offset+32,true);
+ }
+ if(!files[xmlPath])throw Error('O modelo não contém o documento principal.');
+ const ns='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+ const xml=new DOMParser().parseFromString(decoder.decode(files[xmlPath]),'application/xml');
+ const body=xml.getElementsByTagNameNS(ns,'body')[0];
+ if(!body)throw Error('O texto do modelo Word não pôde ser lido.');
+ const paragraphs=Array.from(body.children).filter(p=>p.namespaceURI===ns&&p.localName==='p');
+ const textOf=p=>Array.from(p.getElementsByTagNameNS(ns,'t')).map(t=>t.textContent).join('').trim();
+ const names=paragraphs.filter(p=>/^PARA\s*:?$/iu.test(textOf(p)));
+ const dates=paragraphs.filter(p=>/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(textOf(p)));
+ const blocks=paragraphs.filter(p=>/^MANIPULE\s*:?$/iu.test(textOf(p)));
+ if(names.length!==2||dates.length!==2||blocks.length!==2)throw Error('Selecione o PRESCRIPTION TEMPLATE CABELO original de duas páginas.');
+ function setText(paragraph,text){
+  const nodes=Array.from(paragraph.getElementsByTagNameNS(ns,'t'));
+  if(!nodes.length)throw Error('O modelo original tem um campo sem formatação reconhecível.');
+  nodes[0].setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');
+  nodes[0].textContent=text;
+  nodes.slice(1).forEach(node=>{node.textContent='';});
+ }
+ const lines=content.replace(/\\r\\n|\\n/g,'\n').split(/\r?\n/).map(l=>l.trim().replace(/\*\*/g,'').replace(/^#{1,6}\s+/,'')).filter(l=>l&&!/^PARA(?:\s*:\s*|\s+)|^MANIPULE\s*:?$|^MINUTA\b/iu.test(l));
+ const first=[],second=[];
+ let target=first;
+ for(const line of lines){
+  if(/^Fórmula\s+\d+/iu.test(line))target=first;
+  if(/^(?:[•⮚*-]\s*)?minoxidil\b/iu.test(line)){
+   if(!/\d/.test(line)||/^(?:[•⮚*-]\s*)?minoxidil\s+tópico/iu.test(line))throw Error('Confira a apresentação do minoxidil antes de exportar.');
+   target=second;
+  }
+  target.push(line);
+ }
+ if(!first.length&&!second.length)throw Error('A receita não tem itens para preencher.');
+ names.forEach(p=>setText(p,'PARA '+patient));
+ dates.forEach(p=>setText(p,date));
+ for(const [i,part] of [first,second].entries()){
+  const start=paragraphs.indexOf(blocks[i]), stop=paragraphs.indexOf(dates[i]);
+  const slots=paragraphs.slice(start+1,stop).filter(p=>textOf(p));
+  if(!slots.length)throw Error('Os campos da fórmula não foram encontrados.');
+  const prototypes={
+   title:slots[0].cloneNode(true),
+   item:(slots.find(p=>/^\s*(?:Vit |Dutasterida|Minoxidil)/iu.test(textOf(p)))||slots[0]).cloneNode(true),
+   instruction:(slots.find(p=>/^Tomar\b/iu.test(textOf(p)))||slots[0]).cloneNode(true)
+  };
+  const anchor=slots[0];
+  for(const line of ['MINUTA — REVISÃO MÉDICA NECESSÁRIA',...part]){
+   const key=/^(?:Fórmula|Uso|MINUTA)/iu.test(line)?'title':/^(?:QSP|Tomar|Aplicar|Pendência)/iu.test(line)?'instruction':'item';
+   const p=prototypes[key].cloneNode(true);
+   if(key==='item'&&p.getElementsByTagNameNS(ns,'numPr').length) setText(p,line.replace(/^[•⮚*-]\s*/u,''));
+   else setText(p,line);
+   body.insertBefore(p,anchor);
+  }
+  for(const p of slots)p.remove();
+ }
+ if(!second.length){
+  const firstDate=paragraphs.indexOf(dates[0]), next=paragraphs.indexOf(names[1]);
+  const secondHeader=paragraphs.slice(firstDate+1,next).findLastIndex(p=>p.getElementsByTagNameNS(ns,'drawing').length);
+  if(secondHeader<0)throw Error('A segunda página do modelo não pôde ser identificada.');
+  for(const p of paragraphs.slice(firstDate+1+secondHeader))p.remove();
+ }
+ files[xmlPath]=new XMLSerializer().serializeToString(xml);
+ return wordZip(files);
+}
+async function downloadDraft(kind){
  const isRecipe=kind==='recipe';
  const content=(isRecipe?state.prescriptionText:state.reportText)?.trim();
  if(!content){
@@ -94,7 +177,13 @@ function downloadDraft(kind){
  if(isRecipe&&!safeName){
   $('notice').textContent='Inclua uma linha “PARA Nome do paciente” na receita para gerar o arquivo identificado.';return;
  }
- downloadWord(makeWord(kind,content,new Date().toLocaleDateString('pt-BR')),isRecipe?safeName+' - receita.docx':clinicModels[kind].file);
+ const date=new Date().toLocaleDateString('pt-BR');
+ if(!isRecipe){downloadWord(makeWord(kind,content,date),clinicModels[kind].file);return;}
+ if(!state.template){$('notice').textContent='Selecione o PRESCRIPTION TEMPLATE CABELO em Configurações para exportar com o Word original.';return;}
+ try{
+  const word=await fillOriginalRecipe(state.template,patient,content,date);
+  downloadWord(word,safeName+' - receita.docx');
+ }catch(error){$('notice').textContent=error.message||'Não foi possível preencher o modelo original.';}
 }
 function downloadClinicModel(kind){
  const content=kind==='recipe'?'Uso [via] · [Duração]\n[Orientações gerais]\nFórmula 1\n• [Componente e dose]\nQSP [Quantidade e apresentação]\n[Posologia, frequência e instruções]\nFórmula 2\n• [Componente e dose]\nQSP [Quantidade e apresentação]\n[Posologia, frequência e instruções]':'Principais Melhoras Obtidas\n• [Exame: valor anterior → valor recente, unidade e datas]\nImpacto Clínico das Melhoras\n[Interpretação e pontos para acompanhamento]';
@@ -134,7 +223,7 @@ document.addEventListener('change',async e=>{const t=e.target;if(t.id==='clinic-
  if(!/\.docx$/i.test(file.name)||file.size<4||file.size>15*1024*1024){$('notice').textContent='Selecione um arquivo .docx de até 15 MB.';return}
  const signature=new Uint8Array(await file.slice(0,4).arrayBuffer());
  if(signature.join(',')!=='80,75,3,4'){$('notice').textContent='O arquivo não parece ser um documento Word válido.';return}
- state.template=file;render();$('notice').textContent='Modelo selecionado nesta aba.';return;
+ state.template=file;render();$('notice').textContent='Modelo original selecionado para as exportações de receita desta aba.';return;
  }if(t.tagName==='SELECT'&&t.dataset.edit){state[t.dataset.edit]=t.value;render()}if(t.dataset.upload&&t.files[0]){const f=t.files[0];if(f.size>10*1024*1024||!(/^(application\/pdf|image\/)/.test(f.type))){$('notice').textContent='Selecione PDF ou imagem de até 10 MB.';return}state.files.push({name:f.name,key:t.dataset.upload,review:false});render();$('notice').textContent='Arquivo registrado para demonstração nesta sessão.'}});
 document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;if(t.dataset.page){page=t.dataset.page;render();return}const a=t.dataset.action;if(!a)return;if(a==='model:recipe'||a==='model:report'){downloadClinicModel(a.slice(6));return;}let note='Alteração registrada nesta demonstração.';if(a==='download-recipe'||a==='download-report'){downloadDraft(a==='download-recipe'?'recipe':'report');return;}if(a==='template-download'&&state.template){
  const url=URL.createObjectURL(state.template);const link=document.createElement('a');link.href=url;link.download=state.template.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);return;
