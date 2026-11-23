@@ -51,8 +51,21 @@ function completePrescription(prescription, patientName) {
  return 'PARA '+(name||'Paciente a identificar');
 }
 
+const quickUploadPage=`<!doctype html><html lang="pt-BR"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Éclairé | Enviar laudo</title>
+<style>body{margin:0;background:#f4f7f5;color:#173f36;font:16px system-ui}main{max-width:680px;margin:8vh auto;padding:24px}section{background:white;border-radius:14px;padding:24px}label{display:block;margin:16px 0 8px}input,textarea{display:block;width:100%;box-sizing:border-box;padding:10px;margin-top:6px}textarea{min-height:110px}button{margin:4px 8px 4px 0;padding:10px;border:0;border-radius:6px;background:#205b4c;color:white}button:disabled{opacity:.55}label:has(input[type=file]){border:2px dashed #487a67;padding:20px;border-radius:8px}</style>
+<main><div id="panel"></div><p id="notice" role="status" aria-live="polite"></p></main>
+<script>
+const $=id=>document.getElementById(id);
+const state={files:[]};
+const page='Documentos';
+let render=()=>{
+ $('panel').innerHTML='<section><h1>Enviar laudo ao Feegow</h1><p><small></small></p><label>Selecionar ou arrastar um laudo<input type="file" data-upload="PDF de apoio"></label><p data-attachment hidden></p></section>';
+};
+</script><script src="/documents.js"></script></html>`;
 const ui='const clinicalDocumentMode='+JSON.stringify(clinicalMode)+';\n'
  +'const feegowExtensionId='+JSON.stringify(feegowExtensionId)+';\n'+String.raw`
+const quickUpload=location.pathname==='/envio-feegow';
 let selectedPdf,selectedLabFile, loading=false,labLoading=false,labSummary='', labPatientName='', labSearching=false;
 function readBase64(file){
  return new Promise((resolve,reject)=>{const reader=new FileReader();
@@ -67,11 +80,13 @@ render=function(){
  const uploadInput=section.querySelector('[data-upload="PDF de apoio"]');
  uploadInput.accept='application/pdf,image/jpeg,image/png,image/webp';
  const uploadLabel=uploadInput.closest('label');
- uploadLabel.firstChild.textContent=clinicalDocumentMode?'Anexar PDF ou imagem de exames':'Anexar PDF ou imagem de exames fictícios';
+ uploadLabel.firstChild.textContent=quickUpload?'Selecione ou arraste um PDF ou imagem':clinicalDocumentMode?'Anexar PDF ou imagem de exames':'Anexar PDF ou imagem de exames fictícios';
  section.querySelector('small').textContent=clinicalDocumentMode
   ? 'O resumo envia o laudo à API da OpenAI. Para gerar rascunhos, o PDF e as notas clínicas são enviados à API.'
   : 'Use anexos e notas fictícios. O resumo envia o laudo à API da OpenAI. Os rascunhos enviam o PDF e as notas.';
+ if(quickUpload)section.querySelector('small').textContent=(clinicalDocumentMode?'':'Use laudos fictícios. ')+'Ao enviar, o laudo será processado e o resumo encaminhado ao Feegow.';
  const attachmentName=uploadLabel.nextElementSibling;
+ if(quickUpload&&selectedLabFile)attachmentName.hidden=false;
  if(selectedLabFile&&attachmentName?.tagName==='P')attachmentName.textContent='Anexo: '+selectedLabFile.name;
  const labButton=document.createElement('button');
  labButton.textContent='Gerar resumo de exames para prontuário';
@@ -189,6 +204,29 @@ render=function(){
   }catch(error){if(selectedLabFile===file)$('notice').textContent=error.message||'Falha ao gerar o resumo.';}
   finally{labLoading=false;render();}
  }
+ if(quickUpload){
+  uploadInput.disabled=labLoading||labSearching;
+  uploadLabel.ondragover=event=>event.preventDefault();
+  uploadLabel.ondrop=event=>{
+   event.preventDefault();
+   if(!uploadInput.disabled)selectQuickFile(event.dataTransfer.files);
+  };
+  uploadInput.onchange=()=>selectQuickFile(uploadInput.files);
+  function selectQuickFile(files){
+   if(files.length!==1){$('notice').textContent='Selecione um laudo por vez.';return;}
+   const file=files[0];
+   if(!['application/pdf','image/jpeg','image/png','image/webp'].includes(file.type)||!file.size||file.size>5*1024*1024){
+    $('notice').textContent='Selecione um PDF, JPG, PNG ou WebP de até 5 MB.';
+    return;
+   }
+   selectedLabFile=file;
+   labSummary='';labPatientName='';
+   return generateSummary(true);
+  }
+  labButton.hidden=true;
+  combinedButton.textContent='Processar novamente';
+  return;
+ }
  const button=document.createElement('button');button.textContent='Gerar rascunhos com OpenAI';button.disabled=loading;
  section.insertBefore(button,section.lastElementChild);
  button.onclick=()=>generateDocuments();
@@ -231,7 +269,7 @@ async function generateDocuments(downloadKind){
  finally{loading=false;render();}
 }
 document.addEventListener('change',e=>{
- if(e.target.dataset.upload!=='PDF de apoio')return;
+ if(quickUpload||e.target.dataset.upload!=='PDF de apoio')return;
  const f=e.target.files?.[0];
  selectedLabFile=f&&['application/pdf','image/jpeg','image/png','image/webp'].includes(f.type)&&f.size>0&&f.size<=5*1024*1024?f:null;
  selectedPdf=selectedLabFile?.type==='application/pdf'?selectedLabFile:null;
@@ -240,8 +278,7 @@ document.addEventListener('change',e=>{
  state.reportText='';state.prescriptionText='';
  if(!selectedLabFile){e.stopImmediatePropagation();render();$('notice').textContent='Selecione um PDF, JPG, PNG ou WebP de até 5 MB.';}
 },true);
-$('role').value='Médico';
-page='Documentos';
+if(!quickUpload){$('role').value='Médico';page='Documentos';}
 render();
 `;
 http.createServer(async(req,res)=>{
@@ -257,7 +294,7 @@ http.createServer(async(req,res)=>{
  if(req.method==='GET'&&path==='/auth/google'){
   if(!id||!secret||!origin)return reply(res,503,{error:'Login Google não configurado.'});
   if(states.size>=1000)return reply(res,429,{error:'Tente novamente em alguns minutos.'});
-  const state=nonce(),verifier=nonce();states.set(state,{verifier,until:Date.now()+300000});
+  const state=nonce(),verifier=nonce();states.set(state,{verifier,until:Date.now()+300000,returnTo:url.searchParams.get('envio')==='1'?'/envio-feegow':'/'});
   res.setHeader('Set-Cookie',cookie('eclaire_state',state,300));
   return redirect(res,'https://accounts.google.com/o/oauth2/v2/auth?'+new URLSearchParams({client_id:id,redirect_uri:callback,response_type:'code',scope:'openid email',state,code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256'}));
  }
@@ -269,7 +306,12 @@ http.createServer(async(req,res)=>{
   const who=await json('https://openidconnect.googleapis.com/v1/userinfo',{headers:{Authorization:'Bearer '+token.access_token}});
   if(who.email_verified!==true||who.email?.toLowerCase()!==admin)return reply(res,403,{error:'Conta não autorizada.'});
   const sid=nonce();sessions.set(sid,{until:Date.now()+3600000,next:0});
-  res.setHeader('Set-Cookie',[cookie('eclaire',sid,3600),cookie('eclaire_state','',0)]);return redirect(res,'/');
+  res.setHeader('Set-Cookie',[cookie('eclaire',sid,3600),cookie('eclaire_state','',0)]);return redirect(res,attempt.returnTo||'/');
+ }
+ if(req.method==='GET'&&path==='/envio-feegow'){
+  if(!allowed)return redirect(res,'/auth/google?envio=1');
+  res.setHeader('Content-Type','text/html; charset=utf-8');
+  return res.end(quickUploadPage);
  }
  if(req.method==='GET'&&path==='/'){
   res.setHeader('Content-Type','text/html; charset=utf-8');
