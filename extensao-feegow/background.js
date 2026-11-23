@@ -284,3 +284,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     .finally(() => { searchRunning = false; });
   return true;
 });
+
+chrome.action.onClicked.addListener(() => {
+  chrome.tabs.create({ url: eclaireOrigin + '/envio-feegow' });
+});
