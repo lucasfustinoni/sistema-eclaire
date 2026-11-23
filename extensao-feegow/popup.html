@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<title>Éclairé · Enviar laudo</title>
+<style>
+*{box-sizing:border-box}body{width:360px;margin:0;padding:18px;font:14px system-ui,sans-serif;color:#18342d;background:#f5faf7}h1{font-size:20px;margin:0 0 12px}p{margin:10px 0}.drop{display:block;padding:20px 12px;border:2px dashed #508276;border-radius:10px;text-align:center;background:white;cursor:pointer}.drop[data-over]{background:#e4f2eb}.drop:focus-within{outline:2px solid #214c43;outline-offset:2px}input{position:absolute;width:1px;height:1px;opacity:0}small{display:block;margin-top:5px;color:#53645e}textarea{width:100%;min-height:90px;margin:6px 0;border:1px solid #8fa99e;border-radius:6px;padding:8px;resize:vertical}button,a{color:#225b4f}button{padding:7px 10px;border:1px solid #9ab2a9;border-radius:5px;background:white;cursor:pointer}
+</style>
+<h1>Enviar laudo ao Feegow</h1>
+<label class="drop" id="drop">Selecionar ou arrastar um laudo
+  <small>PDF, JPG, PNG ou WebP · até 5 MB</small>
+  <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp">
+</label>
+<p id="status" role="status" aria-live="polite">O processamento começa ao selecionar o arquivo.</p>
+<a id="login" hidden href="https://sistema-eclaire-clinico.onrender.com/envio-feegow" target="_blank" rel="noopener">Entrar no Éclairé</a>
+<section id="result" hidden>
+  <strong id="patient"></strong>
+  <textarea id="summary" aria-label="Resumo do laudo" readonly></textarea>
+  <button id="copy" type="button">Copiar resumo</button>
+</section>
+<script src="popup.js"></script>
+</html>
