@@ -124,7 +124,7 @@ async function fillOriginalRecipe(file,patient,content,date){
   nodes[0].textContent=text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]/g,'');
   nodes.slice(1).forEach(node=>{node.textContent='';});
  }
- const lines=content.replace(/\\r\\n|\\n/g,'\n').split(/\r?\n/).map(l=>l.trim().replace(/\*\*/g,'').replace(/^#{1,6}\s+/,'')).filter(l=>l&&!/^PARA(?:\s*:\s*|\s+)|^MANIPULE\s*:?$|^MINUTA\b/iu.test(l));
+ const lines=content.replace(/\\r\\n|\\n/g,'\n').split(/\r?\n/).map(l=>l.trim().replace(/\*\*/g,'').replace(/^#{1,6}\s+/,'')).filter(l=>l&&!/^PARA(?:\s*:\s*|\s+)|^MANIPULE\s*:?$|^MINUTA\b|^Fórmula, dose e posologia: a preencher pelo médico\.?$/iu.test(l));
  const first=[],second=[];
  let target=first;
  for(const line of lines){
@@ -135,7 +135,6 @@ async function fillOriginalRecipe(file,patient,content,date){
   }
   target.push(line);
  }
- if(!first.length&&!second.length)throw Error('A receita não tem itens para preencher.');
  names.forEach(p=>setText(p,'PARA '+patient));
  dates.forEach(p=>setText(p,date));
  for(const [i,part] of [first,second].entries()){
@@ -168,7 +167,7 @@ async function fillOriginalRecipe(file,patient,content,date){
    instruction:paragraphStyle(slots.find(p=>/^Tomar\b/iu.test(textOf(p)))||slots[0])
   };
   const anchor=slots[0];
-  for(const line of ['MINUTA — REVISÃO MÉDICA NECESSÁRIA',...part]){
+  for(const line of part){
    const key=/^(?:Fórmula|Uso|MINUTA)/iu.test(line)?'title':/^(?:QSP|Tomar|Aplicar|Pendência)/iu.test(line)?'instruction':'item';
    const p=prototypes[key].cloneNode(true);
    if(key==='item'&&p.getElementsByTagNameNS(ns,'numPr').length) setText(p,line.replace(/^[•⮚*-]\s*/u,''));
