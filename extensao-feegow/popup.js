@@ -6,6 +6,19 @@ const output = document.querySelector('#result');
 const summary = document.querySelector('#summary');
 let processing = false;
 let currentFile;
+let savedPdf;
+const fileLabel = document.querySelector('#lab-filename');
+function restoreLab(data) {
+  if (data.labFile) {
+    savedPdf = data.labFile;
+    fileLabel.textContent = data.labFile.name;
+  }
+  if (data.labResult) showLabResult(data.labResult);
+}
+chrome.storage.session.get(['labFile','labResult']).then(data=>{if(!processing)restoreLab(data);});
+chrome.storage.onChanged.addListener((changes,area)=>{
+  if(area==='session' && changes.labResult?.newValue && !processing)showLabResult(changes.labResult.newValue);
+});
 const recipeInput = document.querySelector('#recipe-file');
 const recipeButton = document.querySelector('#recipe-download');
 recipeInput.onchange = () => {
@@ -16,6 +29,7 @@ recipeInput.onchange = () => {
 recipeButton.onclick = () => {
   if (!processing) {
     if (currentFile?.type === 'application/pdf') downloadRecipe(currentFile);
+    else if(savedPdf?.mime==='application/pdf')downloadRecipe(savedPdf);
     else recipeInput.click();
   }
 };
@@ -51,8 +65,22 @@ async function upload(files) {
   status.textContent = 'Processando o laudo…';
   try {
     const encoded = await encodeFile(file);
+    const record={name:file.name,mime:file.type,encoded,size:file.size};
+    await chrome.storage.session.set({labFile:record,labResult:{status:'processing'}});
+    savedPdf=record;
+    fileLabel.textContent=file.name;
     const result = await chrome.runtime.sendMessage({ type: 'eclaire.uploadLab', file: encoded, mime: file.type });
+    showLabResult(result);
+  } catch {
+    status.textContent = 'Falha ao processar o laudo. Tente novamente.';
+  } finally {
+    processing = recipeButton.disabled = false;
+  }
+}
+
+function showLabResult(result) {
     const messages = {
+      processing:'Processando o laudo…',
       signIn: 'Entre no Éclairé e envie o laudo novamente pelo ícone.',
       incomplete: 'Confira se o laudo contém o nome do paciente e resultados legíveis.',
       drafted: 'Resumo inserido para revisão e salvamento no Feegow.',
@@ -70,11 +98,6 @@ async function upload(files) {
       summary.value = result.summary;
       output.hidden = false;
     }
-  } catch {
-    status.textContent = 'Falha ao processar o laudo. Tente novamente.';
-  } finally {
-    processing = recipeButton.disabled = false;
-  }
 }
 
 document.querySelector('#copy').addEventListener('click', async () => {
@@ -98,16 +121,21 @@ function encodeFile(file) {
 
 async function downloadRecipe(file) {
   if (processing) return;
-  if (file.type !== 'application/pdf' || !file.size || file.size > 5 * 1024 * 1024) {
+  if ((file.type||file.mime) !== 'application/pdf' || !file.size || file.size > 5 * 1024 * 1024) {
     status.textContent = 'Selecione um PDF de até 5 MB para gerar a receita.';
     return;
   }
-  currentFile = file;
+  if(!file.encoded)currentFile = file;
   processing = recipeButton.disabled = true;
   login.hidden = true;
   status.textContent = 'Preparando a receita em Word…';
   const origin = 'https://sistema-eclaire-clinico.onrender.com';
   try {
+    if(!file.encoded){
+      savedPdf={name:file.name,mime:file.type,encoded:await encodeFile(file),size:file.size};
+      await chrome.storage.session.set({labFile:savedPdf,labResult:null});
+      fileLabel.textContent=file.name;
+    }
     const template = await fetch(origin + '/api/prescription-template', { credentials: 'include' });
     if (template.status === 401) {
       login.hidden = false;
@@ -116,7 +144,7 @@ async function downloadRecipe(file) {
     if (!template.ok) throw Error('O modelo Word precisa estar configurado no servidor do Éclairé.');
     const response = await fetch(origin + '/api/documents', {
       method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pdf: await encodeFile(file), notes: '' })
+      body: JSON.stringify({ pdf: file.encoded || savedPdf.encoded, notes: '' })
     });
     if (response.status === 401) {
       login.hidden = false;
