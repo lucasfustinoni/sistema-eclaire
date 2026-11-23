@@ -3,10 +3,13 @@ const paymentForm = document.querySelector('#payment-form');
 const paymentStatus = document.querySelector('#payment-status');
 function showPayment(result) {
   paymentStatus.textContent = result.message;
+  if (result.url) showPaymentLink(result.url);
+}
+function showPaymentLink(url) {
   const link = document.querySelector('#payment-link');
-  link.href = result.url || '#';
-  link.textContent = result.url || '';
-  document.querySelector('#payment-result').hidden = !result.url;
+  link.href = url;
+  link.textContent = url;
+  document.querySelector('#payment-result').hidden = false;
 }
 async function copyPayment(url) {
   try { await navigator.clipboard.writeText(url); paymentStatus.textContent = 'Link copiado.'; }
@@ -14,7 +17,8 @@ async function copyPayment(url) {
 }
 const draft = () => ({patient:paymentForm.elements.patient.value, amount:paymentForm.elements.amount.value});
 paymentForm.addEventListener('input', () => chrome.storage.session.set({paymentDraft:draft()}));
-chrome.storage.session.get(['paymentResult','paymentDraft']).then(({paymentResult,paymentDraft}) => {
+chrome.storage.session.get(['paymentResult','paymentDraft','lastPaymentLink']).then(({paymentResult,paymentDraft,lastPaymentLink}) => {
+  if (lastPaymentLink) showPaymentLink(lastPaymentLink);
   if (paymentResult) showPayment(paymentResult);
   if (paymentDraft && !draft().patient && !draft().amount) {
     paymentForm.elements.patient.value = paymentDraft.patient;
