@@ -42,7 +42,10 @@ function labAttachment(data) {
  if(mime==='image/webp'&&Buffer.from(encoded.slice(0,16),'base64').toString('ascii',8)!=='WEBP')return null;
  return {type:'input_image',image_url:'data:'+mime+';base64,'+encoded,detail:'high'};
 }
-const ui='const clinicalDocumentMode='+JSON.stringify(clinicalMode)+';\n'+String.raw`
+const feegowExtensionId=/^[a-p]{32}$/.test(process.env.ECLAIRE_FEEGOW_EXTENSION_ID||'')
+ ? process.env.ECLAIRE_FEEGOW_EXTENSION_ID : '';
+const ui='const clinicalDocumentMode='+JSON.stringify(clinicalMode)+';\n'
+ +'const feegowExtensionId='+JSON.stringify(feegowExtensionId)+';\n'+String.raw`
 let selectedPdf,selectedLabFile, loading=false,labLoading=false,labSummary='';
 function readBase64(file){
  return new Promise((resolve,reject)=>{const reader=new FileReader();
@@ -72,7 +75,37 @@ render=function(){
  summaryBox.value=labSummary;
  summaryBox.oninput=()=>{labSummary=summaryBox.value;};
  summaryLabel.append(summaryBox);
- (attachmentName?.tagName==='P'?attachmentName:uploadLabel).after(labButton,summaryLabel);
+ const feegowButton=document.createElement('button');
+ feegowButton.type='button';
+ feegowButton.textContent='Inserir exames no Feegow';
+ feegowButton.disabled=!labSummary.trim();
+ summaryBox.addEventListener('input',()=>{feegowButton.disabled=!summaryBox.value.trim();});
+ const labActions=document.createElement('div');
+ labActions.className='row';
+ labActions.append(labButton,feegowButton);
+ (attachmentName?.tagName==='P'?attachmentName:uploadLabel).after(labActions,summaryLabel);
+ feegowButton.onclick=()=>{
+  const summary=summaryBox.value.trim();
+  if(!summary)return;
+  const runtime=globalThis.chrome?.runtime;
+  if(!feegowExtensionId||!runtime?.sendMessage){
+   $('notice').textContent='A extensão Éclairé para o Feegow ainda precisa ser instalada e configurada no Chrome.';
+   return;
+  }
+  feegowButton.disabled=true;
+  try{
+   runtime.sendMessage(feegowExtensionId,{type:'eclaire.feegow.prepareLabSummary',version:1,summary},reply=>{
+    const failed=runtime.lastError;
+    feegowButton.disabled=!summaryBox.value.trim();
+    $('notice').textContent=failed||reply?.status!=='ready'
+     ? 'A extensão não confirmou o recebimento. Confira se está ativa e tente novamente.'
+     : 'Resumo recebido pela extensão. Confirme o paciente e o campo no Feegow.';
+   });
+  }catch{
+   feegowButton.disabled=!summaryBox.value.trim();
+   $('notice').textContent='Não foi possível conectar à extensão do Feegow.';
+  }
+ };
  labButton.onclick=async()=>{
   if(!selectedLabFile){$('notice').textContent='Anexe um PDF ou imagem de exames.';return;}
   const file=selectedLabFile,previousSummary=labSummary;
