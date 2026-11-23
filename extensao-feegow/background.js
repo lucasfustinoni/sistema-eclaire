@@ -285,6 +285,35 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
   return true;
 });
 
-chrome.action.onClicked.addListener(() => {
-  chrome.tabs.create({ url: eclaireOrigin + '/envio-feegow' });
+
+chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (sender.url !== chrome.runtime.getURL('popup.html') || message?.type !== 'eclaire.uploadLab') return;
+  if (searchRunning) { respond({ status: 'busy' }); return; }
+  const { file, mime } = message;
+  if (typeof file !== 'string' || file.length > 6990510 ||
+      !['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(mime)) {
+    respond({ status: 'invalid' });
+    return;
+  }
+  searchRunning = true;
+  processPopupUpload(file, mime).then(respond, () => respond({ status: 'error' }))
+    .finally(() => { searchRunning = false; });
+  return true;
 });
+
+async function processPopupUpload(file, mime) {
+  const response = await fetch(eclaireOrigin + '/api/lab-summary', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file, mime })
+  });
+  if (response.status === 401) return { status: 'signIn' };
+  const result = await response.json();
+  if (!response.ok) return { status: 'error', error: result.error };
+  const patientName = result.patientName?.trim();
+  const summary = result.summary?.trim();
+  if (!patientName || !summary) return { status: 'incomplete', patientName, summary };
+  const outcome = await prepareSearch(patientName, summary).catch(() => ({ status: 'error' }));
+  return { ...outcome, patientName, summary };
+}
