@@ -1,6 +1,5 @@
 (() => {
   const origin = 'https://minhaconta.saudeservice.evoluservices.com';
-  const sale = origin + '/venda';
   let running = false;
 
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
@@ -13,7 +12,7 @@
     }
     if (running) { respond({ message: 'Já existe uma geração em andamento.' }); return; }
     running = true;
-    generate(patient, cents).then(respond, async error => {
+    generate(message.tabId, patient, cents).then(respond, async error => {
       const result = { message: error.message || 'Não foi possível gerar o link.' };
       await chrome.storage.session.set({paymentResult:result});
       respond(result);
@@ -21,14 +20,12 @@
     return true;
   });
 
-  async function generate(patient, cents) {
+  async function generate(tabId, patient, cents) {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.active || !tab.url || new URL(tab.url).origin !== origin || !/^\/venda\/?$/.test(new URL(tab.url).pathname)) {
+      throw Error('Abra Nova Venda no Saúde Service e clique no ícone nessa aba.');
+    }
     await chrome.storage.session.set({paymentResult:{message:'Verificando conta…'}});
-    const tabs = await chrome.tabs.query({ url: origin + '/*' });
-    let tab = tabs.find(item => item.url?.startsWith(sale)) || tabs[0];
-    if (tab && !tab.url.startsWith(sale)) tab = await chrome.tabs.update(tab.id, {url:sale, active:true});
-    else if (tab) await chrome.tabs.update(tab.id, {active:true});
-    else tab = await chrome.tabs.create({url:sale});
-    await chrome.windows.update(tab.windowId, {focused:true});
     const deadline = Date.now() + 10000;
     let result;
     do {
@@ -88,12 +85,14 @@
         await click('Conclua a tela de segurança para continuar.', ['Ativar depois','Enable later']);
       }
       const profile = await wait('Não encontrei o menu de perfil.',()=>buttons().find(x=>/^(perfil|meu perfil|minha conta|menu do usuario|user menu|profile|eclaire servicos medicos ltda)$/.test(text(x)) ||
-        /perfil|avatar|account|profile/.test(normalize([x.getAttribute('aria-label'),x.title,x.getAttribute('data-testid')].filter(Boolean).join(' ')))));
+        /perfil|avatar|account|profile/.test(normalize([x.getAttribute('aria-label'),x.title,x.getAttribute('data-testid')].filter(Boolean).join(' ')))) || [...document.querySelectorAll('header button.MuiIconButton-root')].filter(visible).at(-1));
       profile.click();
       const accountMenu = await wait('Não consegui conferir os dados da conta ativa.',()=>[...document.querySelectorAll('[role=menu],[role=dialog], [data-state=open], [data-popper-placement]')].filter(visible).find(x=>normalize(x.innerText||'').includes('@')));
       const accountText = normalize(accountMenu.innerText);
-      if (!accountText.includes('eclaire servicos medicos ltda') || !accountText.includes('clinicaeclaire@gmail.com')) throw Error('Conta incorreta.');
-      profile.click();
+      const menuItems = [...accountMenu.querySelectorAll('[role=menuitem]')].filter(visible);
+      if (menuItems.length !== 4 || !accountText.includes('clinicaeclaire@gmail.com') || !text(menuItems[1]).includes('eclaire servicos medicos ltda')) throw Error('Conta incorreta ou não foi possível confirmar a conta ativa.');
+      accountMenu.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+      await wait('Feche o menu do perfil para continuar.',()=>!visible(accountMenu));
       set(await wait('Não encontrei Valor do Tratamento.',()=>field('Valor do Tratamento')),money);
       await click('Não encontrei Calcular.', ['Calcular']);
       await click('Não encontrei Link de Pagamento.', ['Link de Pagamento']);
