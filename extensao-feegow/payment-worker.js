@@ -28,7 +28,16 @@
     await chrome.storage.session.set({paymentResult:{message:'Abrindo o Saúde Service…'}});
     const tabs = await chrome.tabs.query({url:hostPattern});
     const existing = tabs.find(tab => /^\/venda\/?$/.test(new URL(tab.url).pathname));
-    const tab = existing || await chrome.tabs.create({url:origin + '/venda', active:false});
+    let tab = existing;
+    if (existing?.status === 'complete') {
+      const [{result: dialogOpen}] = await chrome.scripting.executeScript({
+        target:{tabId:existing.id},
+        func:() => [...document.querySelectorAll('[role=dialog],[aria-modal=true],dialog[open],.MuiDialog-paper')]
+          .some(el => el.getClientRects().length && /enviar link de pagamento|seu link foi gerado/i.test(el.innerText))
+      });
+      if (dialogOpen) tab = null;
+    }
+    tab ||= await chrome.tabs.create({url:origin + '/venda', active:false});
     const deadline = Date.now() + 10000;
     let result;
     do {
@@ -80,7 +89,7 @@
       return [...root.querySelectorAll('input,textarea')].filter(visible).find(input =>
         [input.placeholder||'',input.getAttribute('aria-label')||'',...[...(input.labels||[])].map(item=>item.innerText||'')].some(name=>normalize(name).replace(/\s*[*:]$/,'')===expected));
     };
-    const dialogs = () => [...document.querySelectorAll('[role=dialog],[aria-modal=true],dialog[open]')].filter(visible);
+    const dialogs = () => [...document.querySelectorAll('[role=dialog],[aria-modal=true],dialog[open],.MuiDialog-paper')].filter(visible);
     const money = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(cents/100);
     try {
       if (location.origin !== 'https://minhaconta.saudeservice.evoluservices.com' || !/^\/venda\/?$/.test(location.pathname)) throw Error('Abra a página Nova Venda e faça login primeiro.');
@@ -106,7 +115,18 @@
         await click('Não consegui fechar o aviso de novidades.', ['Avançar','Fechar','×','X'],news);
         await wait('O aviso de novidades não avançou.',()=>!visible(news)||!normalize(news.innerText).includes('temos novidade')||news.innerText!==previous);
       }
-      await click('Não encontrei a opção Avulsa.', ['Avulsa']);
+      const avulsa = await wait('Não encontrei o cartão Avulsa no modal Enviar Link de Pagamento.', () => {
+        const modal = dialogs().find(el => normalize(el.innerText).includes('enviar link de pagamento'));
+        if (!modal) return null;
+        const exact = find(['Avulsa'],modal);
+        if (exact) return exact;
+        const headings = [...modal.querySelectorAll('span,p,strong,h2,h3,h4,h5,h6,div')]
+          .filter(el => visible(el) && !el.children.length && text(el) === 'avulsa');
+        const cards = new Set(headings.map(heading => heading.closest('button,[role=button],a,[tabindex],.MuiButtonBase-root') || heading)
+          .filter(card => modal.contains(card) && !card.disabled && card.getAttribute('aria-disabled') !== 'true'));
+        return cards.size === 1 ? [...cards][0] : null;
+      });
+      avulsa.click();
       const options = await wait('Não encontrei o modal de pagamento.',()=>dialogs().find(el=>normalize(el.innerText).includes('parcelamento')));
       const select = [...options.querySelectorAll('select')].find(el=>visible(el)&&[...el.options].some(option=>normalize(option.text)==='12 vezes'));
       if(select){
