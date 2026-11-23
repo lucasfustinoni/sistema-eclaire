@@ -317,13 +317,13 @@ http.createServer(async(req,res)=>{
   res.setHeader('Content-Type','text/html; charset=utf-8');
   return res.end(allowed?root.replace('</html>','<script src="/documents.js"></script></html>'):'<!doctype html><meta charset="utf-8"><title>Éclairé</title><h1>Éclairé · Área da equipe</h1><a href="/auth/google">Entrar com Google</a>');
  }
- const popupRequest=path==='/api/lab-summary'&&req.headers.origin==='chrome-extension://'+feegowExtensionId;
+ const popupRequest=['/api/lab-summary','/api/documents','/api/prescription-template'].includes(path)&&req.headers.origin==='chrome-extension://'+feegowExtensionId;
  if(popupRequest){
   res.setHeader('Access-Control-Allow-Origin',req.headers.origin);
   res.setHeader('Access-Control-Allow-Credentials','true');
   res.setHeader('Vary','Origin');
   if(req.method==='OPTIONS'){
-   res.setHeader('Access-Control-Allow-Methods','POST');
+   res.setHeader('Access-Control-Allow-Methods',path==='/api/prescription-template'?'GET':'POST');
    res.setHeader('Access-Control-Allow-Headers','Content-Type');
    res.writeHead(204);return res.end();
   }
