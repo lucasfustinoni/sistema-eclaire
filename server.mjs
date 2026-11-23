@@ -28,6 +28,7 @@ const labSummaryInstructions = [
  'Quando todos os componentes de um grupo estiverem presentes, avaliáveis e normais, use TGO/TGP/GGT: OK para AST, ALT e GGT, Função renal: OK para creatinina e TFG, e Eletrólitos: OK para sódio, potássio e cloreto. Sem dados suficientes, apresente apenas os valores disponíveis. Posicione eletrólitos após a função renal e antes de ácido úrico. Não inclua um resumo OK se algum resultado do grupo estiver alterado.',
  'Calcule HOMA-IR somente quando glicose e insulina de jejum pertencerem à mesma coleta e as unidades estiverem claras: glicose em mg/dL × insulina em µUI/mL ÷ 405, ou glicose em mmol/L × insulina em µUI/mL ÷ 22,5. Se já houver HOMA-IR atual no laudo, use o valor informado.',
  'Siga esta ordem: GLI INS HOMA-IR HbA1c CT HDL LDL TG TGO TGP GGT Cr TFG Ác. úrico Ferritina Fe Sat. transf. B12 Folato Vit D Vit A Vit C Zn Cu Mg TSH T4L T3L Anti-TPO Testo total Testo livre SHBG DHT E2 Prog FSH LH DHEA-S Cortisol IGF-1 PCR VHS.',
+ 'Em patientName, transcreva o nome completo identificado como paciente no laudo. Ignore nomes de profissionais e responsáveis. Se não houver nome legível ou se houver mais de um paciente, retorne patientName vazio.',
  'Se não houver resultados legíveis, retorne summary vazio.'
 ].join('\n');
 const imageSignatures = {'image/jpeg':'/9j/','image/png':'iVBORw0KGgo','image/webp':'UklGR'};
@@ -43,10 +44,10 @@ function labAttachment(data) {
  return {type:'input_image',image_url:'data:'+mime+';base64,'+encoded,detail:'high'};
 }
 const feegowExtensionId=/^[a-p]{32}$/.test(process.env.ECLAIRE_FEEGOW_EXTENSION_ID||'')
- ? process.env.ECLAIRE_FEEGOW_EXTENSION_ID : '';
+ ? process.env.ECLAIRE_FEEGOW_EXTENSION_ID : 'akbolhlicphnpgjncbhhffablbekoele';
 const ui='const clinicalDocumentMode='+JSON.stringify(clinicalMode)+';\n'
  +'const feegowExtensionId='+JSON.stringify(feegowExtensionId)+';\n'+String.raw`
-let selectedPdf,selectedLabFile, loading=false,labLoading=false,labSummary='';
+let selectedPdf,selectedLabFile, loading=false,labLoading=false,labSummary='', labPatientName='', labSearching=false;
 function readBase64(file){
  return new Promise((resolve,reject)=>{const reader=new FileReader();
   reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(file);
@@ -77,38 +78,53 @@ render=function(){
  summaryLabel.append(summaryBox);
  const feegowButton=document.createElement('button');
  feegowButton.type='button';
+ feegowButton.dataset.feegowSearch='';
  feegowButton.textContent='Inserir exames no Feegow';
- feegowButton.disabled=!labSummary.trim();
- summaryBox.addEventListener('input',()=>{feegowButton.disabled=!summaryBox.value.trim();});
+ feegowButton.disabled=labSearching;
+ const patientLabel=document.createElement('label');
+ patientLabel.textContent='Nome do paciente para busca no Feegow';
+ const patientInput=document.createElement('input');
+ patientInput.type='text';
+ patientInput.maxLength=160;
+ patientInput.autocomplete='off';
+ patientInput.value=labPatientName;
+ patientInput.oninput=()=>{labPatientName=patientInput.value;};
+ patientLabel.append(patientInput);
  const labActions=document.createElement('div');
  labActions.className='row';
  labActions.append(labButton,feegowButton);
- (attachmentName?.tagName==='P'?attachmentName:uploadLabel).after(labActions,summaryLabel);
+ (attachmentName?.tagName==='P'?attachmentName:uploadLabel).after(labActions,patientLabel,summaryLabel);
  feegowButton.onclick=()=>{
-  const summary=summaryBox.value.trim();
-  if(!summary)return;
+  const patientName=patientInput.value.trim();
+  if(!patientName){$('notice').textContent='Gere o resumo ou preencha o nome do paciente para buscar no Feegow.';patientInput.focus();return;}
   const runtime=globalThis.chrome?.runtime;
   if(!feegowExtensionId||!runtime?.sendMessage){
    $('notice').textContent='A extensão Éclairé para o Feegow ainda precisa ser instalada e configurada no Chrome.';
    return;
   }
-  feegowButton.disabled=true;
-  try{
-   runtime.sendMessage(feegowExtensionId,{type:'eclaire.feegow.prepareLabSummary',version:1,summary},reply=>{
-    const failed=runtime.lastError;
-    feegowButton.disabled=!summaryBox.value.trim();
-    $('notice').textContent=failed||reply?.status!=='ready'
-     ? 'A extensão não confirmou o recebimento. Confira se está ativa e tente novamente.'
-     : 'Resumo recebido pela extensão. Confirme o paciente e o campo no Feegow.';
-   });
-  }catch{
-   feegowButton.disabled=!summaryBox.value.trim();
-   $('notice').textContent='Não foi possível conectar à extensão do Feegow.';
+  labSearching=true;feegowButton.disabled=true;
+  function complete(status){
+   labSearching=false;
+   $('panel').querySelector('[data-feegow-search]')?.removeAttribute('disabled');
+   const messages={
+    ready:'Nome preenchido na Busca rápida. Confira o resultado no Feegow.',
+    noTab:'Abra o Feegow e entre na sua conta nesta janela do Chrome.',
+    multipleTabs:'Deixe uma única aba inicial do Feegow aberta nesta janela.',
+    noSearch:'Busca rápida indisponível. Abra a página inicial do Feegow.',
+    invalidName:'Confira o nome do paciente antes de buscar.',
+    error:'A extensão não conseguiu preencher a Busca rápida.'
+   };
+   $('notice').textContent=messages[status]||'A extensão não respondeu. Confira se está ativa no Chrome.';
   }
+  try{
+   runtime.sendMessage(feegowExtensionId,{type:'eclaire.feegow.prepareLabSummary',version:1,patientName},reply=>{
+    complete(runtime.lastError?'unavailable':reply?.status);
+   });
+  }catch{complete('unavailable');}
  };
  labButton.onclick=async()=>{
   if(!selectedLabFile){$('notice').textContent='Anexe um PDF ou imagem de exames.';return;}
-  const file=selectedLabFile,previousSummary=labSummary;
+  const file=selectedLabFile,previousSummary=labSummary,previousName=labPatientName;
   labLoading=true;labButton.disabled=true;$('notice').textContent='Gerando o resumo de exames…';
   try{
    const response=await fetch('/api/lab-summary',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -116,6 +132,7 @@ render=function(){
    const result=await response.json();
    if(!response.ok)throw Error(result.error);
    if(selectedLabFile!==file)return;
+   if(labPatientName===previousName)labPatientName=result.patientName;
    if(labSummary!==previousSummary){$('notice').textContent='O resumo foi editado durante a geração. Suas edições foram mantidas.';return;}
    labSummary=result.summary;
    $('notice').textContent=labSummary?'Confira os valores no laudo antes de copiar para o prontuário.':'Nenhum resultado legível foi encontrado no anexo.';
@@ -144,7 +161,7 @@ document.addEventListener('change',e=>{
  const f=e.target.files?.[0];
  selectedLabFile=f&&['application/pdf','image/jpeg','image/png','image/webp'].includes(f.type)&&f.size>0&&f.size<=5*1024*1024?f:null;
  selectedPdf=selectedLabFile?.type==='application/pdf'?selectedLabFile:null;
- labSummary='';
+ labSummary='';labPatientName='';
  state.files=state.files.filter(f=>f.key!=='PDF de apoio');
  state.reportText='';state.prescriptionText='';
  if(!selectedLabFile){e.stopImmediatePropagation();render();$('notice').textContent='Selecione um PDF, JPG, PNG ou WebP de até 5 MB.';}
@@ -211,13 +228,13 @@ http.createServer(async(req,res)=>{
     model,store:false,max_output_tokens:2500,instructions:labSummaryInstructions,
     input:[{role:'user',content:[attachment]}],
     text:{format:{type:'json_schema',name:'lab_summary',strict:true,schema:{
-     type:'object',properties:{summary:{type:'string'}},required:['summary'],additionalProperties:false
+     type:'object',properties:{summary:{type:'string'},patientName:{type:'string'}},required:['summary','patientName'],additionalProperties:false
     }}}
    })},90000);
   if(result.status!=='completed')throw Error('incomplete lab summary');
   const out=JSON.parse(result.output?.flatMap(i=>i.content||[]).find(i=>i.type==='output_text')?.text);
-  if(typeof out.summary!=='string')throw Error('invalid lab summary');
-  return reply(res,200,{summary:out.summary.replace(/\s+/g,' ').trim()});
+  if(typeof out.summary!=='string'||typeof out.patientName!=='string')throw Error('invalid lab summary');
+  return reply(res,200,{summary:out.summary.replace(/\s+/g,' ').trim(),patientName:out.patientName.replace(/\s+/g,' ').trim().slice(0,160)});
  }
  if(!data||typeof data.notes!=='string'||!data.notes.trim()||data.notes.length>30000||typeof data.pdf!=='string'||data.pdf.length>7_000_000||!/^JVBERi0[A-Za-z0-9+/]+=*$/.test(data.pdf))return reply(res,400,{error:'Informe notas e um PDF válido de até 5 MB.'});
  const result=await json('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify({
