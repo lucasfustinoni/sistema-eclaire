@@ -69,10 +69,15 @@ render=function(){
  if(selectedLabFile&&attachmentName?.tagName==='P')attachmentName.textContent='Anexo: '+selectedLabFile.name;
  const labButton=document.createElement('button');
  labButton.textContent='Gerar resumo de exames para prontuário';
- labButton.disabled=labLoading;
+ labButton.disabled=labLoading||labSearching;
+ const combinedButton=document.createElement('button');
+ combinedButton.type='button';
+ combinedButton.textContent='Gerar resumo e inserir no Feegow';
+ combinedButton.disabled=labLoading||labSearching;
  const summaryLabel=document.createElement('label');
  summaryLabel.textContent='Resumo de exames para prontuário';
  const summaryBox=document.createElement('textarea');
+ summaryBox.dataset.labSummary='';
  summaryBox.value=labSummary;
  summaryBox.oninput=()=>{labSummary=summaryBox.value;};
  summaryLabel.append(summaryBox);
@@ -80,11 +85,12 @@ render=function(){
  feegowButton.type='button';
  feegowButton.dataset.feegowSearch='';
  feegowButton.textContent='Inserir exames no Feegow';
- feegowButton.disabled=labSearching;
+ feegowButton.disabled=labLoading||labSearching;
  const patientLabel=document.createElement('label');
  patientLabel.textContent='Nome do paciente para busca no Feegow';
  const patientInput=document.createElement('input');
  patientInput.type='text';
+ patientInput.dataset.labPatient='';
  patientInput.maxLength=160;
  patientInput.autocomplete='off';
  patientInput.value=labPatientName;
@@ -92,7 +98,7 @@ render=function(){
  patientLabel.append(patientInput);
  const labActions=document.createElement('div');
  labActions.className='row';
- labActions.append(labButton,feegowButton);
+ labActions.append(labButton,feegowButton,combinedButton);
  function copyButton(field,label){
   const button=document.createElement('button');
   button.type='button';
@@ -114,20 +120,22 @@ render=function(){
   labActions,patientLabel,copyButton(patientInput,'nome do paciente'),
   summaryLabel,copyButton(summaryBox,'resumo de exames')
  );
- feegowButton.onclick=()=>{
-  const patientName=patientInput.value.trim();
-  const summary=summaryBox.value.trim().replace(/\s+/g,' ');
-  if(!summary){$('notice').textContent='Gere ou preencha o resumo de exames antes de enviar ao Feegow.';summaryBox.focus();return;}
-  if(!patientName){$('notice').textContent='Gere o resumo ou preencha o nome do paciente para buscar no Feegow.';patientInput.focus();return;}
+ function sendToFeegow(){
+  if(labLoading||labSearching)return;
+  const patientName=labPatientName.trim();
+  const summary=labSummary.trim().replace(/\s+/g,' ');
+  if(!summary){$('notice').textContent='Gere ou preencha o resumo de exames antes de enviar ao Feegow.';$('panel').querySelector('[data-lab-summary]')?.focus();return;}
+  if(!patientName){$('notice').textContent='Gere o resumo ou preencha o nome do paciente para buscar no Feegow.';$('panel').querySelector('[data-lab-patient]')?.focus();return;}
   const runtime=globalThis.chrome?.runtime;
   if(!feegowExtensionId||!runtime?.sendMessage){
    $('notice').textContent='A extensão Éclairé para o Feegow ainda precisa ser instalada e configurada no Chrome.';
    return;
   }
-  labSearching=true;feegowButton.disabled=true;
+  labSearching=true;render();
+  $('notice').textContent='Enviando o resumo ao Feegow…';
   function complete(status){
    labSearching=false;
-   $('panel').querySelector('[data-feegow-search]')?.removeAttribute('disabled');
+   render();
    const messages={
     ready:'Nome preenchido na Busca rápida. Confira o resultado no Feegow.',
     noTab:'Abra o Feegow e entre na sua conta nesta janela do Chrome.',
@@ -147,24 +155,32 @@ render=function(){
     complete(runtime.lastError?'unavailable':reply?.status);
    });
   }catch{complete('unavailable');}
- };
- labButton.onclick=async()=>{
+ }
+ feegowButton.onclick=sendToFeegow;
+ labButton.onclick=()=>generateSummary(false);
+ combinedButton.onclick=()=>generateSummary(true);
+ async function generateSummary(sendAfter){
+  if(labLoading||labSearching)return;
   if(!selectedLabFile){$('notice').textContent='Anexe um PDF ou imagem de exames.';return;}
   const file=selectedLabFile,previousSummary=labSummary,previousName=labPatientName;
-  labLoading=true;labButton.disabled=true;$('notice').textContent='Gerando o resumo de exames…';
+  labLoading=true;render();$('notice').textContent='Gerando o resumo de exames…';
   try{
    const response=await fetch('/api/lab-summary',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({file:await readBase64(file),mime:file.type})});
    const result=await response.json();
    if(!response.ok)throw Error(result.error);
    if(selectedLabFile!==file)return;
-   if(labPatientName===previousName)labPatientName=result.patientName;
+   const nameEdited=labPatientName!==previousName;
+   if(!nameEdited)labPatientName=result.patientName;
    if(labSummary!==previousSummary){$('notice').textContent='O resumo foi editado durante a geração. Suas edições foram mantidas.';return;}
    labSummary=result.summary;
    $('notice').textContent=labSummary?'Confira os valores no laudo antes de copiar para o prontuário.':'Nenhum resultado legível foi encontrado no anexo.';
+   if(sendAfter&&nameEdited){$('notice').textContent='O nome foi editado durante a geração. Confira e use Inserir exames no Feegow.';return;}
+   if(sendAfter&&labSummary&&!labPatientName){$('notice').textContent='Resumo pronto. Preencha o nome do paciente e use Inserir exames no Feegow.';return;}
+   if(sendAfter&&labSummary&&labPatientName){labLoading=false;sendToFeegow();}
   }catch(error){if(selectedLabFile===file)$('notice').textContent=error.message||'Falha ao gerar o resumo.';}
   finally{labLoading=false;render();}
- };
+ }
  const button=document.createElement('button');button.textContent='Gerar rascunhos com OpenAI';button.disabled=loading;
  section.insertBefore(button,section.lastElementChild);
  button.onclick=async()=>{
