@@ -317,3 +317,7 @@ async function processPopupUpload(file, mime) {
   const outcome = await prepareSearch(patientName, summary).catch(() => ({ status: 'error' }));
   return { ...outcome, patientName, summary };
 }
+
+chrome.action.onClicked.addListener(() => {
+  chrome.tabs.create({ url: eclaireOrigin + '/envio-feegow' });
+});
