@@ -153,6 +153,84 @@ async function searchAndReview(tab, patientName, summary) {
   return { status: 'error' };
 }
 
+const loginUrl = 'https://clinic.feegow.com/main/sso/';
+const loginAccounts = ['lucafustinoni@gmail.com', 'atendimentoeclaire@gmail.com'];
+let searchRunning = false;
+
+function loginStep(account, accounts, allowEmail, allowPassword) {
+  if (location.origin !== 'https://clinic.feegow.com' || location.pathname !== '/main/sso/') return {};
+  const email = document.querySelector('main input[type="email"], main input[placeholder="nome@clinica.com.br"]');
+  const password = document.querySelector('main input[type="password"][autocomplete="current-password"]');
+  if (!account && email) {
+    let panel = document.querySelector('#eclaire-feegow-account');
+    if (!panel) {
+      panel = document.createElement('fieldset');
+      panel.id = 'eclaire-feegow-account';
+      const title = document.createElement('legend');
+      title.textContent = 'Qual conta o Éclairé deve usar no Feegow?';
+      panel.append(title);
+      for (const option of accounts) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = option;
+        button.onclick = () => { panel.dataset.account = option; };
+        panel.append(button);
+      }
+      email.form.before(panel);
+    }
+    return { chosen: panel.dataset.account };
+  }
+  if (email && account && allowEmail) {
+    const button = email.form?.querySelector('button[type="submit"]');
+    if (!button) return {};
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(email, account);
+    email.dispatchEvent(new Event('input', { bubbles: true }));
+    if (button.disabled) return {};
+    button.click();
+    return { emailSubmitted: true };
+  }
+  if (password && !account) {
+    const change = [...document.querySelectorAll('main a')].find(link => link.textContent.trim() === 'Alterar');
+    change?.click();
+    return {};
+  }
+  if (password && account && allowPassword && password.form?.elements.namedItem('User')?.value === account) {
+    const button = password.form.querySelector('button[type="submit"]');
+    if (button && !button.disabled && password.matches(':-webkit-autofill')) {
+      button.click();
+      return { passwordSubmitted: true };
+    }
+  }
+  return {};
+}
+
+async function waitForFeegowLogin(tabId) {
+  const stored = await chrome.storage.local.get('feegowAccount');
+  let account = loginAccounts.includes(stored.feegowAccount) ? stored.feegowAccount : '';
+  let emailSubmitted = false;
+  let passwordSubmitted = false;
+  const deadline = Date.now() + 90000;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.status === 'complete' && tab.url) {
+      const url = new URL(tab.url);
+      if (url.origin === new URL(loginUrl).origin && url.pathname === '/main/sso/') {
+        const step = await runInTab(tabId, loginStep, [account, loginAccounts, !emailSubmitted, !passwordSubmitted]);
+        if (!account && loginAccounts.includes(step?.chosen)) {
+          account = step.chosen;
+          await chrome.storage.local.set({ feegowAccount: account });
+        }
+        if (step?.emailSubmitted) emailSubmitted = true;
+        if (step?.passwordSubmitted) passwordSubmitted = true;
+      } else if (url.origin === new URL(loginUrl).origin && ['/', '/main', '/main/'].includes(url.pathname)) {
+        return tab;
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, 650));
+  }
+  return null;
+}
+
 async function prepareSearch(patientName, summary) {
   const tabs = await chrome.tabs.query({ url: feegowPatterns });
   const pages = tabs.filter(tab => tab.url && ['/', '/main', '/main/'].includes(new URL(tab.url).pathname));
@@ -163,16 +241,26 @@ async function prepareSearch(patientName, summary) {
     return url.searchParams.get('P')?.toLowerCase() === 'home' || (url.pathname === '/' && !url.searchParams.has('P'));
   });
   const candidates = home.length ? home : matchingTabs;
-  if (candidates.length !== 1) return { status: candidates.length ? 'multipleTabs' : 'noTab' };
+  if (candidates.length > 1) return { status: 'multipleTabs' };
+  let tab = candidates[0];
+  if (!tab) {
+    const loginTabs = tabs.filter(item => item.url && item.url.split('?')[0] === loginUrl);
+    if (loginTabs.length > 1) return { status: 'multipleTabs' };
+    tab = loginTabs[0] || await chrome.tabs.create({ url: loginUrl });
+    await chrome.tabs.update(tab.id, { active: true });
+    await chrome.windows.update(tab.windowId, { focused: true });
+    tab = await waitForFeegowLogin(tab.id);
+    if (!tab) return { status: 'loginRequired' };
+  }
   const [{ result }] = await chrome.scripting.executeScript({
-    target: { tabId: candidates[0].id },
+    target: { tabId: tab.id },
     func: fillQuickSearch,
     args: [patientName]
   });
   if (!result) return { status: 'noSearch' };
-  await chrome.tabs.update(candidates[0].id, { active: true });
-  await chrome.windows.update(candidates[0].windowId, { focused: true });
-  return searchAndReview(candidates[0], patientName, summary);
+  await chrome.tabs.update(tab.id, { active: true });
+  await chrome.windows.update(tab.windowId, { focused: true });
+  return searchAndReview(tab, patientName, summary);
 }
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
@@ -188,6 +276,9 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     sendResponse({ status: 'invalidSummary' });
     return;
   }
-  prepareSearch(name, summary).then(sendResponse, () => sendResponse({ status: 'error' }));
+  if (searchRunning) { sendResponse({ status: 'busy' }); return; }
+  searchRunning = true;
+  prepareSearch(name, summary).then(sendResponse, () => sendResponse({ status: 'error' }))
+    .finally(() => { searchRunning = false; });
   return true;
 });
