@@ -220,7 +220,7 @@ async function downloadDraft(kind){
  const isRecipe=kind==='recipe';
  const content=(isRecipe?state.prescriptionText:state.reportText)?.trim();
  if(!content){
-  $('notice').textContent=isRecipe?'Preencha a receita com a conduta definida ou use o botão para baixar o modelo capilar em branco.':'Preencha o relatório antes de baixar.';return;
+  $('notice').textContent=isRecipe?'Clique em Gerar rascunhos com OpenAI para preparar a receita antes de baixar.':'Preencha o relatório antes de baixar.';return;
  }
  const patient=isRecipe?content.replace(/\\r\\n|\\n/g,'\n').split(/\r?\n/).map(line=>line.replace(/\*\*/g,'').replace(/^\s*#{1,6}\s+/,'').match(/^\s*PARA(?:\s*:\s*|\s+)(.+?)\s*$/iu)?.[1]).find(Boolean):null;
  const safeName=patient?.replace(/[<>:"/\\|?*\x00-\x1f]/g,' ').replace(/\s+/g,' ').trim().slice(0,140);
@@ -240,9 +240,9 @@ function downloadClinicModel(kind){
  downloadWord(makeWord(kind,content,'[Data]',true),clinicModels[kind].template);
 }
 function documentDraft(){
- const fields=[['clinicalText','Informações clínicas fictícias'],['reportText','Relatório revisado'],['prescriptionText','Receita definida pelo médico']];
+ const fields=[['clinicalText','Informações clínicas fictícias'],['reportText','Relatório revisado'],['prescriptionText','Receita preenchida']];
  const pdf=state.files.find(f=>f.key==='PDF de apoio');
- return card('Documentos do atendimento','<p><small>Use apenas exemplos fictícios. O PDF é identificado pelo nome e o conteúdo dos rascunhos é preenchido manualmente.</small></p>'+upload('PDF de apoio','Anexar PDF fictício','application/pdf')+(pdf?'<p>PDF: '+esc(pdf.name)+'</p>':'')+fields.map(([k,label])=>'<label>'+label+'<textarea data-edit="'+k+'">'+esc(state[k])+'</textarea></label>').join('')+'<p><small>A receita só é gerada quando as notas registram a conduta definida pelo médico. Você também pode preencher o campo da receita manualmente ou baixar o modelo capilar em branco.</small></p><div class="row">'+act('model:recipe','Baixar modelo capilar em branco (.docx)')+act('download-recipe','Baixar receita preenchida (.docx)')+act('download-report','Baixar relatório (.docx)')+'</div>');
+ return card('Documentos do atendimento','<p><small>Use apenas exemplos fictícios. O PDF é identificado pelo nome e o conteúdo dos rascunhos é preenchido manualmente.</small></p>'+upload('PDF de apoio','Anexar PDF fictício','application/pdf')+(pdf?'<p>PDF: '+esc(pdf.name)+'</p>':'')+fields.map(([k,label])=>'<label>'+label+'<textarea data-edit="'+k+'">'+esc(state[k])+'</textarea></label>').join('')+'<div class="row">'+act('download-recipe','Baixar receita preenchida (.docx)')+act('download-report','Baixar relatório (.docx)')+'</div>');
 }
 
 function render(){const r=$('role').value;$('nav').innerHTML=menus[r].map(p=>'<button data-page="'+p+'" aria-current="'+(p===page)+'">'+p+'</button>').join('');let view='';
