@@ -59,7 +59,7 @@
       await new Promise(resolve => setTimeout(resolve, 250));
     } while (Date.now() < deadline);
     if (!result) throw Error('A página de venda não ficou disponível. Faça login primeiro.');
-    await chrome.storage.session.set({paymentResult:result});
+    await chrome.storage.session.set(result.url ? {paymentResult:result,lastPaymentLink:result.url} : {paymentResult:result});
     return result;
   }
 
@@ -151,7 +151,14 @@
       const url = await wait('O portal não confirmou o link. Confira a venda antes de tentar novamente.',()=>{
         const success = dialogs().find(el=>normalize(el.innerText).includes('seu link foi gerado com sucesso')) ||
           (normalize(document.body.innerText).includes('seu link foi gerado com sucesso') ? document : null);
-        return success && [...success.querySelectorAll('input,textarea,a')].filter(visible).map(el=>el.value||el.href||'').find(value=>/^https:\/\/www\.evoluservices\.com\/orders\/[a-f0-9-]{36}$/i.test(value));
+        if (!success) return null;
+        const values = [...success.querySelectorAll('input,textarea,a')].filter(visible)
+          .map(el => el.value || el.href || '');
+        values.push(success.innerText || success.body?.innerText || '');
+        const urls = new Set(values.flatMap(value => value.match(
+          /https:\/\/www\.evoluservices\.com\/orders\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}(?![a-z0-9-])/gi
+        ) || []));
+        return urls.size === 1 ? [...urls][0] : null;
       });
       try { await navigator.clipboard.writeText(url); } catch {}
       return {message:'Pronto. Link gerado.',url};
