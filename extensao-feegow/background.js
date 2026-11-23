@@ -196,9 +196,18 @@ function loginStep(account, accounts, allowEmail, allowPassword) {
   }
   if (password && account && allowPassword && password.form?.elements.namedItem('User')?.value === account) {
     const button = password.form.querySelector('button[type="submit"]');
-    if (button && !button.disabled && password.matches(':-webkit-autofill')) {
+    const remember = password.form.querySelector('input[type="checkbox"][name="Lembrarme"]');
+    if (remember && !remember.checked && !remember.disabled) remember.click();
+    if (button && !button.disabled && password.matches(':autofill, :-webkit-autofill')) {
       button.click();
       return { passwordSubmitted: true };
+    }
+    if (!document.getElementById('eclaire-password-help')) {
+      const help = document.createElement('p');
+      help.id = 'eclaire-password-help';
+      help.setAttribute('role', 'status');
+      help.textContent = 'Na lista de senhas do Chrome, selecione ' + account + '. A extensão clicará em Entrar após o preenchimento.';
+      password.form.before(help);
     }
   }
   return {};
