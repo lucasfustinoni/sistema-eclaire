@@ -93,7 +93,27 @@ render=function(){
  const labActions=document.createElement('div');
  labActions.className='row';
  labActions.append(labButton,feegowButton);
- (attachmentName?.tagName==='P'?attachmentName:uploadLabel).after(labActions,patientLabel,summaryLabel);
+ function copyButton(field,label){
+  const button=document.createElement('button');
+  button.type='button';
+  button.textContent='Copiar';
+  button.setAttribute('aria-label','Copiar '+label);
+  button.onclick=async()=>{
+   if(!field.value.trim()){$('notice').textContent='O campo está vazio.';return;}
+   try{
+    await navigator.clipboard.writeText(field.value);
+    $('notice').textContent='Texto copiado.';
+   }catch{
+    field.focus();field.select();
+    $('notice').textContent='Texto selecionado. Use Ctrl+C ou ⌘C para copiar.';
+   }
+  };
+  return button;
+ }
+ (attachmentName?.tagName==='P'?attachmentName:uploadLabel).after(
+  labActions,patientLabel,copyButton(patientInput,'nome do paciente'),
+  summaryLabel,copyButton(summaryBox,'resumo de exames')
+ );
  feegowButton.onclick=()=>{
   const patientName=patientInput.value.trim();
   const summary=summaryBox.value.trim().replace(/\s+/g,' ');
@@ -114,6 +134,7 @@ render=function(){
     multipleTabs:'Deixe uma única aba inicial do Feegow aberta nesta janela.',
     noSearch:'Busca rápida indisponível. Abra a página inicial do Feegow.',
     drafted:'Exames acrescentados ao editor do Feegow. Confira o cadastro e revise antes de salvar.',
+    noMagnifier:'A extensão não encontrou uma única lupa da evolução neste prontuário.',
     noEditor:'O cadastro foi aberto, mas a extensão não conseguiu identificar uma única evolução editável.',
     invalidSummary:'Confira o tamanho do resumo de exames.',
     invalidName:'Confira o nome do paciente antes de buscar.',
