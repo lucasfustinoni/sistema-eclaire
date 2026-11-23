@@ -28,8 +28,8 @@
   <button type="submit">Gerar link</button>
 </form>
 <p id="payment-status" role="status"></p>
-<div id="payment-result" hidden><a id="payment-link" target="_blank" rel="noopener">Abrir link gerado</a> <button id="payment-copy" type="button">Copiar</button></div>
-<style>.payment-input{position:static;width:100%;height:auto;opacity:1;padding:8px;margin:4px 0 10px;border:1px solid #8fa99e;border-radius:6px}h2{font-size:16px}#payment-link{overflow-wrap:anywhere}</style>
+<div id="payment-result" hidden><strong>Último link gerado</strong><div class="payment-link-row"><a id="payment-link" target="_blank" rel="noopener">Abrir link gerado</a> <button id="payment-copy" type="button">Copiar</button></div></div>
+<style>.payment-input{position:static;width:100%;height:auto;opacity:1;padding:8px;margin:4px 0 10px;border:1px solid #8fa99e;border-radius:6px}h2{font-size:16px}.payment-link-row{display:flex;align-items:center;gap:8px;margin-top:6px}.payment-link-row a{min-width:0;flex:1;overflow-wrap:anywhere}.payment-link-row button{flex:none}</style>
 <script src="payment-popup.js"></script>
 <script src="recipe-word.js"></script>
 <script src="popup.js"></script>
