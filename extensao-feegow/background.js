@@ -157,7 +157,7 @@ const loginUrl = 'https://clinic.feegow.com/main/sso/';
 const loginAccounts = ['lucafustinoni@gmail.com', 'atendimentoeclaire@gmail.com'];
 let searchRunning = false;
 
-function loginStep(account, accounts, allowEmail, allowPassword) {
+function loginStep(account, accounts, allowEmail) {
   if (location.origin !== 'https://clinic.feegow.com' || location.pathname !== '/main/sso/') return {};
   const email = document.querySelector('main input[type="email"], main input[placeholder="nome@clinica.com.br"]');
   const password = document.querySelector('main input[type="password"][autocomplete="current-password"]');
@@ -194,19 +194,14 @@ function loginStep(account, accounts, allowEmail, allowPassword) {
     change?.click();
     return {};
   }
-  if (password && account && allowPassword && password.form?.elements.namedItem('User')?.value === account) {
-    const button = password.form.querySelector('button[type="submit"]');
+  if (password && account && password.form?.elements.namedItem('User')?.value === account) {
     const remember = password.form.querySelector('input[type="checkbox"][name="Lembrarme"]');
     if (remember && !remember.checked && !remember.disabled) remember.click();
-    if (button && !button.disabled && password.matches(':autofill, :-webkit-autofill')) {
-      button.click();
-      return { passwordSubmitted: true };
-    }
     if (!document.getElementById('eclaire-password-help')) {
       const help = document.createElement('p');
       help.id = 'eclaire-password-help';
       help.setAttribute('role', 'status');
-      help.textContent = 'Na lista de senhas do Chrome, selecione ' + account + '. A extensão clicará em Entrar após o preenchimento.';
+      help.textContent = 'Na lista de senhas do Chrome, selecione ' + account + '. Depois, conclua o desafio se solicitado e clique em Entrar.';
       password.form.before(help);
     }
   }
@@ -217,20 +212,18 @@ async function waitForFeegowLogin(tabId) {
   const stored = await chrome.storage.local.get('feegowAccount');
   let account = loginAccounts.includes(stored.feegowAccount) ? stored.feegowAccount : '';
   let emailSubmitted = false;
-  let passwordSubmitted = false;
   const deadline = Date.now() + 90000;
   while (Date.now() < deadline) {
     const tab = await chrome.tabs.get(tabId);
     if (tab.status === 'complete' && tab.url) {
       const url = new URL(tab.url);
       if (url.origin === new URL(loginUrl).origin && url.pathname === '/main/sso/') {
-        const step = await runInTab(tabId, loginStep, [account, loginAccounts, !emailSubmitted, !passwordSubmitted]);
+        const step = await runInTab(tabId, loginStep, [account, loginAccounts, !emailSubmitted]);
         if (!account && loginAccounts.includes(step?.chosen)) {
           account = step.chosen;
           await chrome.storage.local.set({ feegowAccount: account });
         }
         if (step?.emailSubmitted) emailSubmitted = true;
-        if (step?.passwordSubmitted) passwordSubmitted = true;
       } else if (url.origin === new URL(loginUrl).origin && ['/', '/main', '/main/'].includes(url.pathname)) {
         return tab;
       }
