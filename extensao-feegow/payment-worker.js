@@ -12,7 +12,7 @@
     }
     if (running) { respond({ message: 'Já existe uma geração em andamento.' }); return; }
     running = true;
-    generate(message.tabId, patient, cents).then(respond, async error => {
+    generate(patient, cents).then(respond, async error => {
       const result = { message: error.message || 'Não foi possível gerar o link.' };
       await chrome.storage.session.set({paymentResult:result});
       respond(result);
@@ -20,18 +20,21 @@
     return true;
   });
 
-  async function generate(tabId, patient, cents) {
-    const tab = await chrome.tabs.get(tabId);
-    if (!tab.active || !tab.url || new URL(tab.url).origin !== origin || !/^\/venda\/?$/.test(new URL(tab.url).pathname)) {
-      throw Error('Abra Nova Venda no Saúde Service e clique no ícone nessa aba.');
+  async function generate(patient, cents) {
+    const hostPattern = origin + '/*';
+    if (!await chrome.permissions.contains({origins:[hostPattern]})) {
+      throw Error('Autorize o acesso ao Saúde Service pelo pop-up.');
     }
-    await chrome.storage.session.set({paymentResult:{message:'Verificando conta…'}});
+    await chrome.storage.session.set({paymentResult:{message:'Abrindo o Saúde Service…'}});
+    const tabs = await chrome.tabs.query({url:hostPattern});
+    const existing = tabs.find(tab => /^\/venda\/?$/.test(new URL(tab.url).pathname));
+    const tab = existing || await chrome.tabs.create({url:origin + '/venda', active:false});
     const deadline = Date.now() + 10000;
     let result;
     do {
       const current = await chrome.tabs.get(tab.id);
       if (current.url && !current.url.startsWith(origin + '/') && current.status === 'complete') throw Error('Faça login primeiro no Saúde Service.');
-      if (current.status === 'complete') {
+      if (current.url?.startsWith(origin + '/') && current.status === 'complete') {
         try {
           const [{result: pageResult}] = await chrome.scripting.executeScript({
             target:{tabId:tab.id}, func: runSale, args:[patient,cents]
