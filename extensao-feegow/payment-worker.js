@@ -115,36 +115,31 @@
         await click('Não consegui fechar o aviso de novidades.', ['Avançar','Fechar','×','X'],news);
         await wait('O aviso de novidades não avançou.',()=>!visible(news)||!normalize(news.innerText).includes('temos novidade')||news.innerText!==previous);
       }
-      const avulsa = await wait('Não encontrei o cartão Avulsa no modal Enviar Link de Pagamento.', () => {
-        const modal = dialogs().find(el => normalize(el.innerText).includes('enviar link de pagamento'));
-        if (!modal) return null;
-        const exact = find(['Avulsa'],modal);
-        if (exact) return exact;
-        const headings = [...modal.querySelectorAll('span,p,strong,h2,h3,h4,h5,h6,div')]
-          .filter(el => visible(el) && !el.children.length && text(el) === 'avulsa');
-        const cards = new Set(headings.map(heading => heading.closest('button,[role=button],a,[tabindex],.MuiButtonBase-root') || heading)
-          .filter(card => modal.contains(card) && !card.disabled && card.getAttribute('aria-disabled') !== 'true'));
-        return cards.size === 1 ? [...cards][0] : null;
+      const avulsa = await wait('Não encontrei o título Avulsa no portal.', () => {
+        const headings = [...document.querySelectorAll('h6')].filter(el =>
+          visible(el) && normalize(el.textContent) === 'avulsa');
+        return headings.length === 1 ? headings[0] : null;
       });
       avulsa.click();
-      const options = await wait('Não encontrei o modal de pagamento.',()=>dialogs().find(el=>normalize(el.innerText).includes('parcelamento')));
-      const select = [...options.querySelectorAll('select')].find(el=>visible(el)&&[...el.options].some(option=>normalize(option.text)==='12 vezes'));
-      if(select){
-        select.value=[...select.options].find(option=>normalize(option.text)==='12 vezes').value;
-        select.dispatchEvent(new Event('change',{bubbles:true}));
-      }else{
-        await click('Não encontrei o seletor de parcelamento.', ['Parcelamento','1 vez','1 vezes','Selecione'],options);
-        const twelve=await wait('Não encontrei 12 vezes.',()=>find(['12 vezes'])||[...document.querySelectorAll('[role=option]')].find(x=>visible(x)&&text(x)==='12 vezes'));
-        twelve.click();
-      }
+      const options = await wait('Não encontrei o modal de pagamento.', () =>
+        dialogs().find(el => field('Parcelamento', el)));
+      const installments = field('Parcelamento', options);
+      const openInstallments = installments.closest('.MuiAutocomplete-root')
+        ?.querySelector('button[aria-label="Abrir"]');
+      if (!openInstallments) throw Error('Não encontrei o botão Abrir de Parcelamento.');
+      openInstallments.click();
+      const twelve = await wait('Não encontrei 12 vezes.', () =>
+        [...document.querySelectorAll('[role=option]')].find(el => visible(el) && text(el) === '12 vezes'));
+      twelve.click();
+      await wait('Não consegui confirmar Em até 12 vezes.', () =>
+        normalize(installments.value) === '12 vezes' &&
+        [...options.querySelectorAll('input[role=combobox]')].some(el => normalize(el.value) === 'em ate'));
       const optionText = normalize(options.innerText);
-      const selectedText = [...options.querySelectorAll('select,[role=combobox],input[type=radio]:checked')].filter(visible).map(el=>normalize(el.selectedOptions?.[0]?.text||el.innerText||el.labels?.[0]?.innerText||el.value||''));
-      if (!selectedText.includes('12 vezes') || !selectedText.includes('em ate')) throw Error('Não consegui confirmar Em até 12 vezes.');
       const activeMethod = label => [...options.querySelectorAll('input[type=checkbox], [role=checkbox], [role=switch],button[aria-pressed]')].some(el=>{
         const labelText = normalize([el.getAttribute('aria-label'),el.textContent,...[...(el.labels||[])].map(l=>l.innerText),el.parentElement?.innerText].filter(Boolean).join(' '));
         return labelText.split(' ').includes(label)&&(el.checked||el.getAttribute('aria-checked')==='true'||el.getAttribute('aria-pressed')==='true');
       });
-      if(!optionText.includes('em ate') || !activeMethod('credito') || !activeMethod('pix')) throw Error('Confira Crédito, Pix e Em até no portal.');
+      if(!activeMethod('credito') || !activeMethod('pix')) throw Error('Confira se Crédito e Pix estão ativados no portal.');
       const moneyField = field('Valor da Venda',options);
       const saleValuePattern = /valor da venda\s*:?\s*(?:r\$\s*)?([\d.]+,\d{2})/u;
       const actualValue = moneyField?.value?.replace(/[^\d.,]/g,'') || saleValuePattern.exec(optionText)?.[1];
