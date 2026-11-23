@@ -37,12 +37,11 @@ paymentForm.onsubmit = async event => {
   button.disabled = true;
   showPayment({message:'Verificando conta…'});
   try {
-    const [tab] = await chrome.tabs.query({active:true,currentWindow:true});
-    if (!tab?.url || !tab.url.startsWith(paymentOrigin + '/')) {
-      showPayment({message:'Abra a página Nova Venda do Saúde Service e clique no ícone da extensão nessa aba.'});
+    if (!await chrome.permissions.request({origins:[paymentOrigin + '/*']})) {
+      showPayment({message:'O Chrome precisa da sua autorização inicial para abrir o Saúde Service.'});
       return;
     }
-    const result = await chrome.runtime.sendMessage({type:'eclaire.paymentLink', tabId:tab.id, patient, cents:Math.round(amount * 100)});
+    const result = await chrome.runtime.sendMessage({type:'eclaire.paymentLink', patient, cents:Math.round(amount * 100)});
     showPayment(result);
     if(result.url) await copyPayment(result.url);
   } catch {
