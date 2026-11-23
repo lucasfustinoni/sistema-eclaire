@@ -10,6 +10,8 @@
   <small>PDF, JPG, PNG ou WebP · até 5 MB</small>
   <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp">
 </label>
+<p><button id="recipe-download" type="button">Baixar receita (.docx)</button></p>
+<input id="recipe-file" type="file" accept="application/pdf" hidden>
 <p id="status" role="status" aria-live="polite">O processamento começa ao selecionar o arquivo.</p>
 <a id="login" hidden href="https://sistema-eclaire-clinico.onrender.com/envio-feegow" target="_blank" rel="noopener">Entrar no Éclairé</a>
 <section id="result" hidden>
@@ -17,5 +19,6 @@
   <textarea id="summary" aria-label="Resumo do laudo" readonly></textarea>
   <button id="copy" type="button">Copiar resumo</button>
 </section>
+<script src="recipe-word.js"></script>
 <script src="popup.js"></script>
 </html>
