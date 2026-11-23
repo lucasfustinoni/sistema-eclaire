@@ -144,6 +144,8 @@ render=function(){
    render();
    const messages={
     ready:'Nome preenchido na Busca rápida. Confira o resultado no Feegow.',
+    loginRequired:'Conclua o login na aba do Feegow e clique novamente para continuar.',
+    busy:'Já existe uma operação do Feegow em andamento.',
     noTab:'Abra o Feegow e entre na sua conta nesta janela do Chrome.',
     multipleTabs:'Deixe uma única aba inicial do Feegow aberta nesta janela.',
     noSearch:'Busca rápida indisponível. Abra a página inicial do Feegow.',
