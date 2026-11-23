@@ -50,8 +50,8 @@ function inspectResults(patientName) {
   return null;
 }
 
-async function runInTab(tabId, func, args = []) {
-  const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, func, args });
+async function runInTab(tabId, func, args = [], world = 'ISOLATED') {
+  const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, func, args, world });
   return result;
 }
 
@@ -84,8 +84,13 @@ function editEvolution(patientId, step, entry) {
   }
   if (step === 'open') {
     if (visible(document.querySelector('#input_50mem[contenteditable="true"]'))) return true;
-    const links = [...document.querySelectorAll('a:has(i.fa-search-plus)')].filter(visible);
+    const links = [...document.querySelectorAll('.panel-controls a:has(i.fa-search-plus)')].filter(link => {
+      const href = link.getAttribute('href') || '';
+      const record = /^javascript:\s*iPront\(\s*['"]AE['"]\s*,\s*['"]?(\d+)['"]?\s*,/i.exec(href);
+      return visible(link) && record?.[1] === patientId;
+    });
     if (links.length !== 1) return false;
+    if (typeof window.iPront !== 'function') return false;
     links[0].click();
     return true;
   }
@@ -109,8 +114,8 @@ async function prepareEvolution(tabId, patientId, summary, urlMatches) {
       ? new Intl.DateTimeFormat('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit'}).format(new Date()).replaceAll('/', '-') + '\n' + summary
       : '';
     const finished = await waitForPage(tabId, url =>
-      urlMatches(url) && runInTab(tabId, editEvolution, [patientId, step, entry]));
-    if (!finished) return { status: 'noEditor' };
+      urlMatches(url) && runInTab(tabId, editEvolution, [patientId, step, entry], step === 'open' ? 'MAIN' : 'ISOLATED'));
+    if (!finished) return { status: step === 'open' ? 'noMagnifier' : 'noEditor' };
   }
   return { status: 'drafted' };
 }
