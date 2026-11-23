@@ -321,3 +321,5 @@ async function processPopupUpload(file, mime) {
 chrome.action.onClicked.addListener(() => {
   chrome.tabs.create({ url: eclaireOrigin + '/envio-feegow' });
 });
+
+importScripts('payment-worker.js');
