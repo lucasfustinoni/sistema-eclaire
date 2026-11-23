@@ -121,7 +121,7 @@ async function fillOriginalRecipe(file,patient,content,date){
   const nodes=Array.from(paragraph.getElementsByTagNameNS(ns,'t'));
   if(!nodes.length)throw Error('O modelo original tem um campo sem formatação reconhecível.');
   nodes[0].setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');
-  nodes[0].textContent=text;
+  nodes[0].textContent=text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]/g,'');
   nodes.slice(1).forEach(node=>{node.textContent='';});
  }
  const lines=content.replace(/\\r\\n|\\n/g,'\n').split(/\r?\n/).map(l=>l.trim().replace(/\*\*/g,'').replace(/^#{1,6}\s+/,'')).filter(l=>l&&!/^PARA(?:\s*:\s*|\s+)|^MANIPULE\s*:?$|^MINUTA\b/iu.test(l));
@@ -139,13 +139,33 @@ async function fillOriginalRecipe(file,patient,content,date){
  names.forEach(p=>setText(p,'PARA '+patient));
  dates.forEach(p=>setText(p,date));
  for(const [i,part] of [first,second].entries()){
+  if(i===1&&!part.length)continue;
   const start=paragraphs.indexOf(blocks[i]), stop=paragraphs.indexOf(dates[i]);
   const slots=paragraphs.slice(start+1,stop).filter(p=>textOf(p));
   if(!slots.length)throw Error('Os campos da fórmula não foram encontrados.');
+  function paragraphStyle(source){
+   const paragraph=xml.createElementNS(ns,'w:p');
+   const properties=Array.from(source.children).find(node=>node.namespaceURI===ns&&node.localName==='pPr');
+   if(properties){
+    const style=properties.cloneNode(true);
+    for(const tag of ['pageBreakBefore','sectPr','pPrChange']){
+     Array.from(style.getElementsByTagNameNS(ns,tag)).forEach(node=>node.remove());
+    }
+    paragraph.appendChild(style);
+   }
+   const run=xml.createElementNS(ns,'w:r');
+   const originalText=source.getElementsByTagNameNS(ns,'t')[0];
+   const originalRun=originalText?.parentElement;
+   const runStyle=Array.from(originalRun?.children||[]).find(node=>node.namespaceURI===ns&&node.localName==='rPr');
+   if(runStyle)run.appendChild(runStyle.cloneNode(true));
+   run.appendChild(xml.createElementNS(ns,'w:t'));
+   paragraph.appendChild(run);
+   return paragraph;
+  }
   const prototypes={
-   title:slots[0].cloneNode(true),
-   item:(slots.find(p=>/^\s*(?:Vit |Dutasterida|Minoxidil)/iu.test(textOf(p)))||slots[0]).cloneNode(true),
-   instruction:(slots.find(p=>/^Tomar\b/iu.test(textOf(p)))||slots[0]).cloneNode(true)
+   title:paragraphStyle(slots[0]),
+   item:paragraphStyle(slots.find(p=>/^\s*(?:Vit |Dutasterida|Minoxidil)/iu.test(textOf(p)))||slots[0]),
+   instruction:paragraphStyle(slots.find(p=>/^Tomar\b/iu.test(textOf(p)))||slots[0])
   };
   const anchor=slots[0];
   for(const line of ['MINUTA — REVISÃO MÉDICA NECESSÁRIA',...part]){
