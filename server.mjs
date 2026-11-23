@@ -96,6 +96,8 @@ render=function(){
  (attachmentName?.tagName==='P'?attachmentName:uploadLabel).after(labActions,patientLabel,summaryLabel);
  feegowButton.onclick=()=>{
   const patientName=patientInput.value.trim();
+  const summary=summaryBox.value.trim().replace(/\s+/g,' ');
+  if(!summary){$('notice').textContent='Gere ou preencha o resumo de exames antes de enviar ao Feegow.';summaryBox.focus();return;}
   if(!patientName){$('notice').textContent='Gere o resumo ou preencha o nome do paciente para buscar no Feegow.';patientInput.focus();return;}
   const runtime=globalThis.chrome?.runtime;
   if(!feegowExtensionId||!runtime?.sendMessage){
@@ -111,13 +113,16 @@ render=function(){
     noTab:'Abra o Feegow e entre na sua conta nesta janela do Chrome.',
     multipleTabs:'Deixe uma única aba inicial do Feegow aberta nesta janela.',
     noSearch:'Busca rápida indisponível. Abra a página inicial do Feegow.',
+    drafted:'Exames acrescentados ao editor do Feegow. Confira o cadastro e revise antes de salvar.',
+    noEditor:'O cadastro foi aberto, mas a extensão não conseguiu identificar uma única evolução editável.',
+    invalidSummary:'Confira o tamanho do resumo de exames.',
     invalidName:'Confira o nome do paciente antes de buscar.',
     error:'A extensão não conseguiu preencher a Busca rápida.'
    };
    $('notice').textContent=messages[status]||'A extensão não respondeu. Confira se está ativa no Chrome.';
   }
   try{
-   runtime.sendMessage(feegowExtensionId,{type:'eclaire.feegow.prepareLabSummary',version:1,patientName},reply=>{
+   runtime.sendMessage(feegowExtensionId,{type:'eclaire.feegow.prepareLabSummary',version:1,patientName,summary},reply=>{
     complete(runtime.lastError?'unavailable':reply?.status);
    });
   }catch{complete('unavailable');}
