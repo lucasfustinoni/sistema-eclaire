@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Éclairé · Busca Feegow",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Preenche a Busca rápida do Feegow com o nome conferido no Éclairé.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA/AWqaQQMAcfQPr0Z9vAsaiw/Rdq+99KKjuWBJHxgqlUJGcYLpoIAHDnvSsdiIbLaSpup9R7kdwc4ftP27JhNyfdmbimvB0jFm/0FbgwnkaH7wpDHoIHquEyVTlpkeGMQ8OPT9SCq0XmRag8B7RZa9N0eXQ/M/ZjvJf6B+txt62HfAyp0VJP4sgUBpvFHAB4YAoR0GVVlG9jsh3jOfHKqzDSqoCnqXctQNp6+otRLOXQ2Ert8lRs7toSa1HRDVgwowv7wFChjVirnQ1wc4G84FwErh4OPfCPqjHuUFdqw+sOsSdhHRViiMww08SdrPM1qOI0TJAe3VEZwqYkMGClhQQIDAQAB",
   "permissions": [
     "scripting",
-    "storage"
+    "storage",
+    "clipboardWrite"
   ],
   "host_permissions": [
     "https://app.feegow.com/*",
@@ -24,5 +25,8 @@
   "action": {
     "default_title": "Enviar laudo ao Feegow",
     "default_popup": "popup.html"
-  }
+  },
+  "optional_host_permissions": [
+    "https://minhaconta.saudeservice.evoluservices.com/*"
+  ]
 }
