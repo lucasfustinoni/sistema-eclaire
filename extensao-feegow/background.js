@@ -296,7 +296,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return;
   }
   searchRunning = true;
-  processPopupUpload(file, mime).then(respond, () => respond({ status: 'error' }))
+  processPopupUpload(file, mime).catch(() => ({ status: 'error' })).then(async result => {
+    await chrome.storage.session.set({labResult:result});
+    respond(result);
+  })
     .finally(() => { searchRunning = false; });
   return true;
 });
