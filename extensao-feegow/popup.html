@@ -19,6 +19,17 @@
   <textarea id="summary" aria-label="Resumo do laudo" readonly></textarea>
   <button id="copy" type="button">Copiar resumo</button>
 </section>
+<hr>
+<h2>Link de pagamento</h2>
+<form id="payment-form">
+  <label>Nome do paciente<input class="payment-input" name="patient" maxlength="120" required autocomplete="off"></label>
+  <label>Valor (R$)<input class="payment-input" name="amount" inputmode="decimal" type="number" min="0.01" step="0.01" required></label>
+  <button type="submit">Gerar link</button>
+</form>
+<p id="payment-status" role="status"></p>
+<div id="payment-result" hidden><a id="payment-link" target="_blank" rel="noopener">Abrir link gerado</a> <button id="payment-copy" type="button">Copiar</button></div>
+<style>.payment-input{position:static;width:100%;height:auto;opacity:1;padding:8px;margin:4px 0 10px;border:1px solid #8fa99e;border-radius:6px}h2{font-size:16px}#payment-link{overflow-wrap:anywhere}</style>
+<script src="payment-popup.js"></script>
 <script src="recipe-word.js"></script>
 <script src="popup.js"></script>
 </html>
