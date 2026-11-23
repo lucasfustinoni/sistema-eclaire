@@ -317,6 +317,17 @@ http.createServer(async(req,res)=>{
   res.setHeader('Content-Type','text/html; charset=utf-8');
   return res.end(allowed?root.replace('</html>','<script src="/documents.js"></script></html>'):'<!doctype html><meta charset="utf-8"><title>Éclairé</title><h1>Éclairé · Área da equipe</h1><a href="/auth/google">Entrar com Google</a>');
  }
+ const popupRequest=path==='/api/lab-summary'&&req.headers.origin==='chrome-extension://'+feegowExtensionId;
+ if(popupRequest){
+  res.setHeader('Access-Control-Allow-Origin',req.headers.origin);
+  res.setHeader('Access-Control-Allow-Credentials','true');
+  res.setHeader('Vary','Origin');
+  if(req.method==='OPTIONS'){
+   res.setHeader('Access-Control-Allow-Methods','POST');
+   res.setHeader('Access-Control-Allow-Headers','Content-Type');
+   res.writeHead(204);return res.end();
+  }
+ }
  if(!allowed)return reply(res,401,{error:'Entre com a conta autorizada.'});
  if(req.method==='GET'&&path==='/api/prescription-template'){
   const encoded=await readFile('/etc/secrets/eclaire-prescription-template.b64','utf8').catch(error=>{
@@ -331,7 +342,7 @@ http.createServer(async(req,res)=>{
  }
  if(req.method==='GET'&&path==='/documents.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');return res.end(ui);}
  if(req.method!=='POST'||!['/api/documents','/api/lab-summary'].includes(path))return reply(res,404,{error:'Rota não encontrada.'});
- if(req.headers.origin!==origin||req.headers['content-type']!=='application/json')return reply(res,403,{error:'Origem inválida.'});
+ if((req.headers.origin!==origin&&!popupRequest)||req.headers['content-type']!=='application/json')return reply(res,403,{error:'Origem inválida.'});
  if(!key||!model)return reply(res,503,{error:'API da OpenAI ainda não configurada.'});
  if(session.next>Date.now())return reply(res,429,{error:'Aguarde antes de tentar novamente.'});
  session.next=Date.now()+15000;
