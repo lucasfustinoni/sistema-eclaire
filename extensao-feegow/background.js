@@ -71,7 +71,51 @@ function showReview(message) {
   setTimeout(() => alert(message), 0);
 }
 
-async function searchAndReview(tab, patientName) {
+function editEvolution(patientId, step, entry) {
+  const url = new URL(location.href);
+  if (url.searchParams.get('P')?.toLowerCase() !== 'pacientes' ||
+      url.searchParams.get('I') !== patientId) return false;
+  const visible = element => element?.getClientRects().length && getComputedStyle(element).visibility === 'visible';
+  if (step === 'section') {
+    const section = document.querySelector('#abaForms[href="#forms"]');
+    if (!visible(section)) return false;
+    if (section.getAttribute('aria-expanded') !== 'true') section.click();
+    return true;
+  }
+  if (step === 'open') {
+    if (visible(document.querySelector('#input_50mem[contenteditable="true"]'))) return true;
+    const links = [...document.querySelectorAll('a:has(i.fa-search-plus)')].filter(visible);
+    if (links.length !== 1) return false;
+    links[0].click();
+    return true;
+  }
+  const editor = document.querySelector('#input_50mem[contenteditable="true"]');
+  if (!visible(editor)) return false;
+  const existing = editor.innerText.trimEnd();
+  if (existing.endsWith(entry)) return true;
+  editor.focus();
+  const range = document.createRange();
+  range.selectNodeContents(editor);
+  range.collapse(false);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return document.execCommand('insertText', false, (existing ? '\n' : '') + entry);
+}
+
+async function prepareEvolution(tabId, patientId, summary, urlMatches) {
+  for (const step of ['section', 'open', 'append']) {
+    const entry = step === 'append'
+      ? new Intl.DateTimeFormat('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit'}).format(new Date()).replaceAll('/', '-') + '\n' + summary
+      : '';
+    const finished = await waitForPage(tabId, url =>
+      urlMatches(url) && runInTab(tabId, editEvolution, [patientId, step, entry]));
+    if (!finished) return { status: 'noEditor' };
+  }
+  return { status: 'drafted' };
+}
+
+async function searchAndReview(tab, patientName, summary) {
   const original = new URL(tab.url);
   if (original.hostname !== 'clinic.feegow.com') return { status: 'ready' };
   // Use the same results URL as submitting the native quick-search box with Enter.
@@ -85,13 +129,13 @@ async function searchAndReview(tab, patientName) {
   });
   if (outcome?.status === 'exact') {
     const destination = new URL(outcome.destination);
-    const opened = await waitForPage(tab.id, url =>
+    const urlMatches = url =>
       url.origin === destination.origin && url.pathname === destination.pathname &&
       url.searchParams.get('P')?.toLowerCase() === 'pacientes' &&
-      url.searchParams.get('I') === destination.searchParams.get('I'));
-    if (!opened) return { status: 'error' };
-    await runInTab(tab.id, showReview, ['Correspondência exata de nome. Confira manualmente a identidade do paciente no cadastro antes de prosseguir.']);
-    return { status: 'ready' };
+      url.searchParams.get('I') === destination.searchParams.get('I');
+    if (!await waitForPage(tab.id, urlMatches)) return { status: 'error' };
+    if (!summary) return { status: 'ready' };
+    return prepareEvolution(tab.id, destination.searchParams.get('I'), summary, urlMatches);
   }
   const loaded = await chrome.tabs.get(tab.id);
   if (loaded.url && new URL(loaded.url).origin === search.origin) {
@@ -104,7 +148,7 @@ async function searchAndReview(tab, patientName) {
   return { status: 'error' };
 }
 
-async function prepareSearch(patientName) {
+async function prepareSearch(patientName, summary) {
   const tabs = await chrome.tabs.query({ url: feegowPatterns });
   const pages = tabs.filter(tab => tab.url && ['/', '/main', '/main/'].includes(new URL(tab.url).pathname));
   const clinic = pages.filter(tab => new URL(tab.url).hostname === 'clinic.feegow.com');
@@ -123,7 +167,7 @@ async function prepareSearch(patientName) {
   if (!result) return { status: 'noSearch' };
   await chrome.tabs.update(candidates[0].id, { active: true });
   await chrome.windows.update(candidates[0].windowId, { focused: true });
-  return searchAndReview(candidates[0], patientName);
+  return searchAndReview(candidates[0], patientName, summary);
 }
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
@@ -134,6 +178,11 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     sendResponse({ status: 'invalidName' });
     return;
   }
-  prepareSearch(name).then(sendResponse, () => sendResponse({ status: 'error' }));
+  const summary = typeof message.summary === 'string' ? message.summary.trim() : '';
+  if (summary.length > 12000 || /[\r\n]/.test(summary)) {
+    sendResponse({ status: 'invalidSummary' });
+    return;
+  }
+  prepareSearch(name, summary).then(sendResponse, () => sendResponse({ status: 'error' }));
   return true;
 });
