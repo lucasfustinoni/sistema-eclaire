@@ -1,5 +1,5 @@
 const eclaireOrigin = 'https://sistema-eclaire-clinico.onrender.com';
-const feegowPattern = 'https://app.feegow.com/main/*';
+const feegowPatterns = ['https://clinic.feegow.com/main/*', 'https://app.feegow.com/main/*'];
 
 function fillQuickSearch(patientName) {
   function isQuickSearch(input) {
@@ -23,9 +23,11 @@ function fillQuickSearch(patientName) {
 }
 
 async function prepareSearch(patientName) {
-  const tabs = await chrome.tabs.query({ url: feegowPattern, currentWindow: true });
-  const home = tabs.filter(tab => new URL(tab.url).searchParams.get('P')?.toLowerCase() === 'home');
-  const candidates = home.length ? home : tabs;
+  const tabs = await chrome.tabs.query({ url: feegowPatterns });
+  const clinic = tabs.filter(tab => new URL(tab.url).hostname === 'clinic.feegow.com');
+  const matchingTabs = clinic.length ? clinic : tabs;
+  const home = matchingTabs.filter(tab => new URL(tab.url).searchParams.get('P')?.toLowerCase() === 'home');
+  const candidates = home.length ? home : matchingTabs;
   if (candidates.length !== 1) return { status: candidates.length ? 'multipleTabs' : 'noTab' };
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId: candidates[0].id },
@@ -34,6 +36,7 @@ async function prepareSearch(patientName) {
   });
   if (!result) return { status: 'noSearch' };
   await chrome.tabs.update(candidates[0].id, { active: true });
+  await chrome.windows.update(candidates[0].windowId, { focused: true });
   return { status: 'ready' };
 }
 
