@@ -39,7 +39,7 @@ paymentForm.onsubmit = async event => {
   }
   const button = paymentForm.querySelector('button');
   button.disabled = true;
-  showPayment({message:'Verificando conta…'});
+  showPayment({message:'Abrindo o Saúde Service…'});
   try {
     if (!await chrome.permissions.request({origins:[paymentOrigin + '/*']})) {
       showPayment({message:'O Chrome precisa da sua autorização inicial para abrir o Saúde Service.'});
